@@ -293,6 +293,7 @@ class Trie {
     if (key.length() == 0) {
       return false;
     }
+    latch_.WLock();
     std::unique_ptr<TrieNode> *node = &root_;
     int n = key.length();
     for (int i = 0; i < n - 1; ++i) {
@@ -308,14 +309,17 @@ class Trie {
 
     if (!(*node)->HasChild(ch)) {
       (*node)->InsertChildNode(ch, std::make_unique<TrieNodeWithValue<T>>(ch, value));
+      latch_.WUnlock();
       return true;
     }
 
     node = (*node)->GetChildNode(ch);
     if ((*node)->IsEndNode()) {
+      latch_.WUnlock();
       return false;
     }
     (*node) = std::make_unique<TrieNodeWithValue<T>>(std::move(*(*node)), value);
+    latch_.WUnlock();
     return true;
   }
 
@@ -340,11 +344,13 @@ class Trie {
     if (key.length() == 0) {
       return false;
     }
+    latch_.WLock();
     std::unique_ptr<TrieNode> *node = &root_;
     std::vector<std::unique_ptr<TrieNode> *> path{};
     path.push_back(node);
     for (char ch : key) {
       if (!(*node)->HasChild(ch)) {
+        latch_.WUnlock();
         return false;
       }
       path.push_back(node);
@@ -357,6 +363,7 @@ class Trie {
       (*parent)->RemoveChildNode((*node)->GetKeyChar());
       node = nullptr;
     } else {
+      latch_.WUnlock();
       return true;
     }
 
@@ -371,7 +378,7 @@ class Trie {
         break;
       }
     }
-
+    latch_.WUnlock();
     return true;
   }
 
@@ -399,10 +406,12 @@ class Trie {
       (*success) = false;
       return {};
     }
+    latch_.RLock();
     std::unique_ptr<TrieNode> *node = &root_;
     for (char ch : key) {
       if (!(*node)->HasChild(ch)) {
         (*success) = false;
+        latch_.RUnlock();
         return {};
       }
       node = (*node)->GetChildNode(ch);
@@ -411,10 +420,12 @@ class Trie {
     auto last_node = dynamic_cast<TrieNodeWithValue<T> *>(node->get());
     if (last_node) {
       (*success) = true;
+      latch_.RUnlock();
       return last_node->GetValue();
     }
 
     (*success) = false;
+    latch_.RUnlock();
     return {};
   }
 };
