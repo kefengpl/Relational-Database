@@ -41,12 +41,14 @@ class Page {
 
   /** @return the page id of this page */
   inline auto GetPageId() -> page_id_t { return page_id_; }
+  // inline void SetPageId(page_id_t page_id) { this->page_id_ = page_id; }
 
   /** @return the pin count of this page */
   inline auto GetPinCount() -> int { return pin_count_; }
 
   /** @return true if the page in memory has been modified from the page on disk, false otherwise */
   inline auto IsDirty() -> bool { return is_dirty_; }
+  // inline void CleanDirty() { this->is_dirty_ = false; }
 
   /** Acquire the page write latch. */
   inline void WLatch() { rwlatch_.WLock(); }

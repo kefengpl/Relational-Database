@@ -20,6 +20,7 @@
 #include "recovery/log_manager.h"
 #include "storage/disk/disk_manager.h"
 #include "storage/page/page.h"
+#include "storage/page/page_guard.h"
 
 namespace bustub {
 
