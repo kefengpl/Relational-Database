@@ -3,6 +3,7 @@
 #include <list>
 #include <mutex>  // NOLINT
 #include <unordered_map>
+#include <utility>
 
 #include "buffer/buffer_pool_manager.h"
 #include "buffer/lru_k_replacer.h"
@@ -13,7 +14,9 @@
 #include "storage/page/page.h"
 
 namespace bustub {
-
+class BasicPageGuard;
+class ReadPageGuard;
+class WritePageGuard;
 /**
  * BufferPoolManager reads disk pages to and from its internal buffer pool.
  */
@@ -40,6 +43,34 @@ class BufferPoolManagerInstance : public BufferPoolManager {
   /** @brief Return the pointer to all the pages in the buffer pool. */
   auto GetPages() -> Page * { return pages_; }
 
+  /**
+   * @brief PageGuard wrappers for FetchPage
+   *
+   * Functionality should be the same as FetchPage, except
+   * that, depending on the function called, a guard is returned.
+   * If FetchPageRead or FetchPageWrite is called, it is expected that
+   * the returned page already has a read or write latch held, respectively.
+   *
+   * @param page_id, the id of the page to fetch
+   * @return PageGuard holding the fetched page
+   */
+  auto FetchPageBasic(page_id_t page_id) -> BasicPageGuard;
+  auto FetchPageRead(page_id_t page_id) -> ReadPageGuard;
+  auto FetchPageWrite(page_id_t page_id) -> WritePageGuard;
+
+  /**
+   * @brief PageGuard wrapper for NewPage
+   *
+   * Functionality should be the same as NewPage, except that
+   * instead of returning a pointer to a page, you return a
+   * BasicPageGuard structure.
+   *
+   * @param[out] page_id, the id of the new page
+   * @return BasicPageGuard holding a new page
+   * @note 包装器，用于实现自动 unpin
+   */
+  auto NewPageGuarded(page_id_t *page_id) -> BasicPageGuard;
+
  protected:
   /**
    * @brief Create a new page in the buffer pool. Set page_id to the new page's id, or nullptr if all frames
@@ -55,6 +86,7 @@ class BufferPoolManagerInstance : public BufferPoolManager {
    *
    * @note 是在 frame 中创建一个空的 page 对象。相当于创建了一个空的 page，其意义在于：其它组件可以通过这个空的 page
    * 写回磁盘。
+   * @note 由于这个 page 是要给其它线程写入的，不能一边写入，一边驱逐，所以必须 pin
    * @param[out] page_id id of created page
    * @return nullptr if no new pages could be created, otherwise pointer to new page
    */
@@ -71,6 +103,7 @@ class BufferPoolManagerInstance : public BufferPoolManager {
    *
    * In addition, remember to disable eviction and record the access history of the frame like you did for NewPgImp().
    * @note 与第一个函数的不同之处在于，这个是尝试从 buffer_pool 中读取磁盘。如果 buffer_pool 有数据，则无需从磁盘读取
+   * @note 提示：fetch 到的 page 是用于给其它线程读取的，所以必须 pin，不能在读取的过程中被 evict 了
    * @param page_id id of page to be fetched
    * @return nullptr if page_id cannot be fetched, otherwise pointer to the requested page
    */
@@ -120,39 +153,10 @@ class BufferPoolManagerInstance : public BufferPoolManager {
   auto DeletePgImp(page_id_t page_id) -> bool override;
 
   /**
-   * @brief PageGuard wrappers for FetchPage
-   *
-   * Functionality should be the same as FetchPage, except
-   * that, depending on the function called, a guard is returned.
-   * If FetchPageRead or FetchPageWrite is called, it is expected that
-   * the returned page already has a read or write latch held, respectively.
-   *
-   * @param page_id, the id of the page to fetch
-   * @return PageGuard holding the fetched page
-   */
-  // auto FetchPageBasic(page_id_t page_id) -> BasicPageGuard;
-  // auto FetchPageRead(page_id_t page_id) -> ReadPageGuard;
-  // auto FetchPageWrite(page_id_t page_id) -> WritePageGuard;
-
-  /**
-   * TODO(P1): Add implementation
-   *
-   * @brief PageGuard wrapper for NewPage
-   *
-   * Functionality should be the same as NewPage, except that
-   * instead of returning a pointer to a page, you return a
-   * BasicPageGuard structure.
-   *
-   * @param[out] page_id, the id of the new page
-   * @return BasicPageGuard holding a new page
-   */
-  // auto NewPageGuarded(page_id_t *page_id) -> BasicPageGuard;
-
-  /**
    * 在 pages_ 数组 中寻找 page_id 对应的页
    * @return 如果成功找到这个 page，就返回地址；其它情况返回 nullptr
    */
-  auto FindPage(page_id_t page_id) -> Page *;
+  auto FindPage(page_id_t page_id, frame_id_t &frame_id) -> Page *;
 
   /**
    * 为一个 page 分配新 frame
@@ -162,7 +166,7 @@ class BufferPoolManagerInstance : public BufferPoolManager {
    * 就是传入的 page_id
    * @return 分配的 frame 的 page 指针。在无法分配 frame 的情况下，返回 nullptr
    */
-  auto AllocateFrameForPage(bool new_page, page_id_t *page_id) -> Page *;
+  auto AllocateFrameForPage(bool new_page, page_id_t *page_id, frame_id_t &allocated_frame) -> Page *;
 
   /**
    * 用来固定某个 page，
@@ -185,6 +189,7 @@ class BufferPoolManagerInstance : public BufferPoolManager {
     page->page_id_ = INVALID_PAGE_ID;
   }
 
+  friend class BasicPageGuard;
   /** Number of pages in the buffer pool. */
   const size_t pool_size_;
   /** The next page id to be allocated  */
@@ -206,7 +211,7 @@ class BufferPoolManagerInstance : public BufferPoolManager {
    * 比如 pool_size_ 是 5，则 frame_id 是 0, 1, 2, 3, 4 */
   std::list<frame_id_t> free_list_;
   /** This latch protects shared data structures. We recommend updating this comment to describe what it protects. */
-  std::mutex latch_;
+  std::recursive_mutex latch_;
 
   /**
    * @brief Allocate a page on disk. Caller should acquire the latch before calling this function.
@@ -222,4 +227,269 @@ class BufferPoolManagerInstance : public BufferPoolManager {
     // This is a no-nop right now without a more complex data structure to track deallocated pages
   }
 };
+
+/**
+ * 这个类很重要，其意义在于实现 pin 的 RAII 管理，降低 B+ Tree 索引工程的难度
+ */
+class BasicPageGuard {
+ public:
+  BasicPageGuard() = default;
+
+  BasicPageGuard(BufferPoolManagerInstance *bpm, Page *page) : bpm_(bpm), page_(page) {}
+  // 所有的拷贝构造都被禁用了
+  BasicPageGuard(const BasicPageGuard &) = delete;
+  auto operator=(const BasicPageGuard &) -> BasicPageGuard & = delete;
+
+  /**
+   * 所有成员变量恢复初始的默认状态
+   */
+  void ClearMembers() {
+    this->bpm_ = nullptr;
+    this->page_ = nullptr;
+    this->is_dirty_ = false;
+  }
+
+  /**
+   * @brief Move constructor for BasicPageGuard
+   *
+   * When you call BasicPageGuard(std::move(other_guard)), you
+   * expect that the new guard will behave exactly like the other
+   * one. In addition, the old page guard should not be usable. For
+   * example, it should not be possible to call .Drop() on both page
+   * guards and have the pin count decrease by 2.
+   * @note 转移对象所有权，传入的右值对象指针直接清零即可
+   */
+  BasicPageGuard(BasicPageGuard &&that) noexcept;
+
+  /**
+   * @brief Drop a page guard
+   *
+   * Dropping a page guard should clear all contents
+   * (so that the page guard is no longer useful), and
+   * it should tell the BPM that we are done using this page,
+   * per the specification in the writeup.
+   * @note 使得对应 page 的 pin 减去 1
+   */
+  void Drop();
+
+  /**
+   * @brief Move assignment for BasicPageGuard
+   *
+   * Similar to a move constructor, except that the move
+   * assignment assumes that BasicPageGuard already has a page
+   * being guarded. Think carefully about what should happen when
+   * a guard replaces its held page with a different one, given
+   * the purpose of a page guard.
+   */
+  auto operator=(BasicPageGuard &&that) noexcept -> BasicPageGuard &;
+
+  /**
+   * @brief Destructor for BasicPageGuard
+   *
+   * When a page guard goes out of scope, it should behave as if
+   * the page guard was dropped.
+   */
+  ~BasicPageGuard();
+
+  /**
+   * @brief Upgrade a BasicPageGuard to a ReadPageGuard
+   *
+   * The protected page is not evicted from the buffer pool during the upgrade,
+   * and the basic page guard should be made invalid after calling this function.
+   * @note 升级过程会给 page 加上读锁，在升级之前，这个 page 就已经 pinned 了
+   * @return an upgraded ReadPageGuard
+   */
+  auto UpgradeRead() -> ReadPageGuard;
+
+  /**
+   * @brief Upgrade a BasicPageGuard to a WritePageGuard
+   *
+   * The protected page is not evicted from the buffer pool during the upgrade,
+   * and the basic page guard should be made invalid after calling this function.
+   * @note 升级过程会给 page 加上写锁，在升级之前，这个 page 就已经 pinned 了
+   * @return an upgraded WritePageGuard
+   */
+  auto UpgradeWrite() -> WritePageGuard;
+
+  auto PageId() -> page_id_t { return page_->GetPageId(); }
+
+  auto GetData() -> const char * { return page_->GetData(); }
+
+  auto IsClear() -> bool { return page_ == nullptr && bpm_ == nullptr && !is_dirty_; }
+
+  template <class T>
+  auto As() -> const T * {
+    return reinterpret_cast<const T *>(GetData());
+  }
+
+  auto GetDataMut() -> char * {
+    is_dirty_ = true;
+    return page_->GetData();
+  }
+
+  template <class T>
+  auto AsMut() -> T * {
+    return reinterpret_cast<T *>(GetDataMut());
+  }
+
+ private:
+  friend class ReadPageGuard;
+  friend class WritePageGuard;
+
+  BufferPoolManagerInstance *bpm_{nullptr};
+  Page *page_{nullptr};
+  bool is_dirty_{false};
+};
+
+class ReadPageGuard {
+ public:
+  ReadPageGuard() = default;
+  ReadPageGuard(BufferPoolManagerInstance *bpm, Page *page);
+  ReadPageGuard(const ReadPageGuard &) = delete;
+  auto operator=(const ReadPageGuard &) -> ReadPageGuard & = delete;
+
+  /**
+   * 补充移动构造函数
+   */
+  explicit ReadPageGuard(BasicPageGuard &&that) noexcept : guard_{std::move(that)} {
+    //! \bug 只有通过 basic 构造(升级)才会加上锁，其它情况不加锁
+    this->guard_.page_->RLatch();  // 加上读锁
+  }
+  /**
+   * @brief Move constructor for ReadPageGuard
+   * @note 通过其它 page_guard (非 basic) 应该维护锁的状态保持原样
+   *
+   * Very similar to BasicPageGuard. You want to create
+   * a ReadPageGuard using another ReadPageGuard.
+   */
+  ReadPageGuard(ReadPageGuard &&that) noexcept : guard_{std::move(that.guard_)} {}
+
+  /**
+   * @brief Move assignment for ReadPageGuard
+   *
+   * Very similar to BasicPageGuard. Given another ReadPageGuard,
+   * replace the contents of this one with that one.
+   */
+  auto operator=(ReadPageGuard &&that) noexcept -> ReadPageGuard & {
+    guard_ = std::move(that.guard_);  // 等号赋值转移所有权，这可以保证锁的状态是不变的。
+    return *this;
+  }
+
+  /**
+   * @brief Drop a ReadPageGuard
+   *
+   * ReadPageGuard's Drop should behave similarly to BasicPageGuard,
+   * except that ReadPageGuard has an additional resource - the latch!
+   * However, you should think VERY carefully about in which order you
+   * want to release these resources.
+   * @note 根据《数据库系统概念》中的提示，应该先释放锁，再 unpin page
+   * “再一个块执行任何操作之前，进程必须钉住这个块，随后获得封锁，必须再对块解除钉住之前释放封锁”
+   */
+  void Drop() {
+    //! \bug 一个锁不能释放两次！
+    if (this->guard_.IsClear()) {
+      return;
+    }
+    this->guard_.page_->RUnlatch();  // 先释放读锁
+    this->guard_.Drop();             // unpin_page
+  }
+
+  /**
+   * @brief Destructor for ReadPageGuard
+   *
+   * Just like with BasicPageGuard, this should behave
+   * as if you were dropping the guard.
+   */
+  ~ReadPageGuard() { Drop(); }
+
+  auto PageId() -> page_id_t { return guard_.PageId(); }
+
+  auto GetData() -> const char * { return guard_.GetData(); }
+
+  template <class T>
+  auto As() -> const T * {
+    return guard_.As<T>();
+  }
+
+ private:
+  BasicPageGuard guard_;
+};
+
+class WritePageGuard {
+ public:
+  WritePageGuard() = default;
+  WritePageGuard(BufferPoolManagerInstance *bpm, Page *page);
+  WritePageGuard(const WritePageGuard &) = delete;
+  auto operator=(const WritePageGuard &) -> WritePageGuard & = delete;
+
+  explicit WritePageGuard(BasicPageGuard &&that) noexcept : guard_{std::move(that)} {
+    //! \bug 只有通过 basic 构造(升级)才会加上锁，其它情况不加锁
+    this->guard_.page_->WLatch();   // 加上写锁
+    this->guard_.is_dirty_ = true;  // 页被写脏了
+  }
+
+  /**
+   * @brief Move constructor for WritePageGuard
+   * @note 通过其它 page_guard (非 basic) 应该维护锁的状态保持原样
+   * Very similar to BasicPageGuard. You want to create
+   * a WritePageGuard using another WritePageGuard.
+   */
+  WritePageGuard(WritePageGuard &&that) noexcept : guard_{std::move(that.guard_)} {}
+
+  /**
+   * @brief Move assignment for WritePageGuard
+   *
+   * Very similar to BasicPageGuard. Given another WritePageGuard,
+   * replace the contents of this one with that one.
+   */
+  auto operator=(WritePageGuard &&that) noexcept -> WritePageGuard & {
+    guard_ = std::move(that.guard_);
+    return *this;
+  }
+
+  /**
+   * @brief Drop a WritePageGuard
+   *
+   * WritePageGuard's Drop should behave similarly to BasicPageGuard,
+   * except that WritePageGuard has an additional resource - the latch!
+   * However, you should think VERY carefully about in which order you
+   * want to release these resources.
+   */
+  void Drop() {
+    //! \bug 一个锁不能释放两次！
+    if (this->guard_.IsClear()) {
+      return;
+    }
+    this->guard_.page_->WUnlatch();  // 先释放写锁
+    this->guard_.Drop();             // unpin_page
+  }
+
+  /**
+   * @brief Destructor for WritePageGuard
+   *
+   * Just like with BasicPageGuard, this should behave
+   * as if you were dropping the guard.
+   */
+  ~WritePageGuard() { Drop(); }
+
+  auto PageId() -> page_id_t { return guard_.PageId(); }
+
+  auto GetData() -> const char * { return guard_.GetData(); }
+
+  template <class T>
+  auto As() -> const T * {
+    return guard_.As<T>();
+  }
+
+  auto GetDataMut() -> char * { return guard_.GetDataMut(); }
+
+  template <class T>
+  auto AsMut() -> T * {
+    return guard_.AsMut<T>();
+  }
+
+ private:
+  BasicPageGuard guard_;
+};
+
 }  // namespace bustub

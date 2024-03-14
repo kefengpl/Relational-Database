@@ -26,30 +26,32 @@ BufferPoolManagerInstance::~BufferPoolManagerInstance() {
 }
 
 auto BufferPoolManagerInstance::NewPgImp(page_id_t *page_id) -> Page * {
-  std::lock_guard<std::mutex> guard(latch_);
-  return AllocateFrameForPage(true, page_id);
+  std::lock_guard<std::recursive_mutex> guard(latch_);
+  frame_id_t allocated_frame{};
+  return AllocateFrameForPage(true, page_id, allocated_frame);
 }
 
 auto BufferPoolManagerInstance::FetchPgImp(page_id_t page_id) -> Page * {
-  std::lock_guard<std::mutex> guard(latch_);
-  Page *page{FindPage(page_id)};
+  Page *page{nullptr};
+  frame_id_t allocated_frame{};
+  // 缩小锁的范围
+  std::unique_lock<std::recursive_mutex> guard(latch_);
+  frame_id_t frame_id{};
+  page = FindPage(page_id, frame_id);
   if (page != nullptr) {
-    //! \bug 你需要先添加访问，Pin Page
-    frame_id_t frame_id{};
-    page_table_->Find(page_id, frame_id);
     PinPage(page, frame_id);
     return page;  // 如果找到 page，返回指针
   }
-  page = AllocateFrameForPage(false, &page_id);
+  page = AllocateFrameForPage(false, &page_id, allocated_frame);
   if (page == nullptr) {
-    return page;
-  }                                                   // 分配 frame 失败，返回 nullptr
+    return page;  // 分配 frame 失败，返回 nullptr
+  }
   disk_manager_->ReadPage(page_id, page->GetData());  // 将数据从磁盘中读入
   return page;
 }
 
-auto BufferPoolManagerInstance::AllocateFrameForPage(bool new_page, page_id_t *page_id) -> Page * {
-  frame_id_t allocated_frame{};
+auto BufferPoolManagerInstance::AllocateFrameForPage(bool new_page, page_id_t *page_id, frame_id_t &allocated_frame)
+    -> Page * {
   if (!free_list_.empty()) {
     allocated_frame = free_list_.front();
     free_list_.pop_front();
@@ -72,10 +74,12 @@ auto BufferPoolManagerInstance::AllocateFrameForPage(bool new_page, page_id_t *p
   if (new_page) {
     *page_id = AllocatePage();  // 如果是新页，分配新的 page_id，否则沿用原来的 page_id
   }
-  page->page_id_ = *page_id;                       // 给新的页分配 page_id
-  page_table_->Insert(*page_id, allocated_frame);  // 在 page_table_ 中记录 page_id --> frame_id 这一对映射关系
-  PinPage(page,
-          allocated_frame);  // pin 计数 + 1，并且禁止淘汰该页面，因为有线程要读取 或者 写入 这个 page，它不能被淘汰
+  page->page_id_ = *page_id;  // 给新的页分配 page_id
+  page_table_->Insert(
+      *page_id,
+      allocated_frame);  // 在 page_table_ 中记录 page_id --> frame_id 这一对映射关系
+                         // pin 计数 + 1，并且禁止淘汰该页面，因为有线程要读取 或者 写入 这个 page，它不能被淘汰
+  PinPage(page, allocated_frame);
   return page;
 }
 
@@ -87,17 +91,16 @@ void BufferPoolManagerInstance::PinPage(Page *page, frame_id_t frame_id) {
 }
 
 auto BufferPoolManagerInstance::UnpinPgImp(page_id_t page_id, bool is_dirty) -> bool {
-  std::lock_guard<std::mutex> guard(latch_);
-  Page *page{FindPage(page_id)};
+  std::lock_guard<std::recursive_mutex> guard(latch_);
+  frame_id_t frame_id{};
+  Page *page{FindPage(page_id, frame_id)};
   if (page == nullptr) {
     return false;
   }
   if (page->GetPinCount() <= 0) {
     return false;
   }
-  if (--page->pin_count_ == 0) {  // 如果 pin_count 恰好减为 0
-    frame_id_t frame_id{};
-    page_table_->Find(page_id, frame_id);     // 找到 frame_id
+  if (--page->pin_count_ == 0) {              // 如果 pin_count 恰好减为 0
     replacer_->SetEvictable(frame_id, true);  // 将对应的 frame_id 设置为可驱逐
   }
   //! \bug 理解这个参数：如果这个 page 是脏的，则 is_dirty 是 true
@@ -110,22 +113,22 @@ auto BufferPoolManagerInstance::UnpinPgImp(page_id_t page_id, bool is_dirty) -> 
 auto BufferPoolManagerInstance::UnsafeFlushPgImp(page_id_t page_id) -> bool {
   // 特殊情况：page_id 是无效的(-1)
   BUSTUB_ASSERT(page_id != INVALID_PAGE_ID, "Invalid Page id.");
-  Page *page{FindPage(page_id)};
+  frame_id_t frame_id{};
+  Page *page{FindPage(page_id, frame_id)};
   if (page == nullptr) {
-    return false;
-  }                                                    // 如果找不到对应的 page，则返回 false
-  disk_manager_->WritePage(page_id, page->GetData());  // 其它情况：将页写回磁盘
-  page->is_dirty_ = false;                             // 删除写入标记
+    return false;  // 如果找不到对应的 page，则返回 false
+  }
+  page->is_dirty_ = false;
+  disk_manager_->WritePage(page_id, page->GetData());
   return true;
 }
 
 auto BufferPoolManagerInstance::FlushPgImp(page_id_t page_id) -> bool {
-  std::lock_guard<std::mutex> guard(latch_);
+  std::lock_guard<std::recursive_mutex> guard(latch_);
   return UnsafeFlushPgImp(page_id);
 }
 
-auto BufferPoolManagerInstance::FindPage(page_id_t page_id) -> Page * {
-  frame_id_t frame_id{};
+auto BufferPoolManagerInstance::FindPage(page_id_t page_id, frame_id_t &frame_id) -> Page * {
   bool found_page = page_table_->Find(page_id, frame_id);  // 找到 frame_id
   if (found_page) {
     return &pages_[frame_id];  // 输出遍历：这个 page 的地址指针
@@ -134,7 +137,7 @@ auto BufferPoolManagerInstance::FindPage(page_id_t page_id) -> Page * {
 }
 
 void BufferPoolManagerInstance::FlushAllPgsImp() {
-  std::lock_guard<std::mutex> guard(latch_);
+  std::lock_guard<std::recursive_mutex> guard(latch_);
   // 遍历 page_ 数组，如果某个页非空闲[页有效]，那么就把它写回自盘
   for (size_t i = 0; i < pool_size_; ++i) {
     Page *page = &pages_[i];
@@ -146,7 +149,7 @@ void BufferPoolManagerInstance::FlushAllPgsImp() {
 }
 
 auto BufferPoolManagerInstance::DeletePgImp(page_id_t page_id) -> bool {
-  std::lock_guard<std::mutex> guard(latch_);
+  std::lock_guard<std::recursive_mutex> guard(latch_);
   frame_id_t frame_id{};
   bool found_page = page_table_->Find(page_id, frame_id);  // 找到 frame_id
   if (!found_page) {
@@ -164,6 +167,72 @@ auto BufferPoolManagerInstance::DeletePgImp(page_id_t page_id) -> bool {
   return true;
 }
 
+BasicPageGuard::BasicPageGuard(BasicPageGuard &&that) noexcept {
+  if (this == &that) {
+    return;
+  }  // 避免自我构造
+  this->bpm_ = that.bpm_;
+  this->page_ = that.page_;
+  this->is_dirty_ = that.is_dirty_;
+  that.ClearMembers();
+}
+
+void BasicPageGuard::Drop() {
+  if (this->bpm_ == nullptr || this->page_ == nullptr) {
+    return;
+  }
+  // 通知管理器 pin - 1
+  bpm_->UnpinPgImp(page_->GetPageId(), is_dirty_);
+  // 将该对象恢复默认状态
+  this->ClearMembers();
+}
+
 auto BufferPoolManagerInstance::AllocatePage() -> page_id_t { return next_page_id_++; }
+
+/**
+ * page_guard 代码区
+ */
+auto BasicPageGuard::operator=(BasicPageGuard &&that) noexcept -> BasicPageGuard & {
+  if (this == &that) {
+    return *this;
+  }              // 避免自我构造
+  this->Drop();  // 自己这个页放弃管理
+  this->bpm_ = that.bpm_;
+  this->page_ = that.page_;
+  this->is_dirty_ = that.is_dirty_;
+  that.ClearMembers();
+  return *this;
+}
+
+BasicPageGuard::~BasicPageGuard() { Drop(); };  // NOLINT
+
+auto BasicPageGuard::UpgradeRead() -> ReadPageGuard { return ReadPageGuard(std::move(*this)); }
+
+auto BasicPageGuard::UpgradeWrite() -> WritePageGuard {
+  return WritePageGuard(std::move(*this));  // 升级
+}
+
+/**
+ * 组合 page_guard 形成的包装方法区
+ */
+auto BufferPoolManagerInstance::NewPageGuarded(page_id_t *page_id) -> BasicPageGuard {
+  std::lock_guard<std::recursive_mutex> guard(latch_);
+  return BasicPageGuard(this, NewPgImp(page_id));
+}
+
+auto BufferPoolManagerInstance::FetchPageBasic(page_id_t page_id) -> BasicPageGuard {
+  std::lock_guard<std::recursive_mutex> guard(latch_);
+  return BasicPageGuard(this, FetchPgImp(page_id));
+}
+
+auto BufferPoolManagerInstance::FetchPageRead(page_id_t page_id) -> ReadPageGuard {
+  std::lock_guard<std::recursive_mutex> guard(latch_);
+  return BasicPageGuard(this, FetchPgImp(page_id)).UpgradeRead();
+}
+
+auto BufferPoolManagerInstance::FetchPageWrite(page_id_t page_id) -> WritePageGuard {
+  std::lock_guard<std::recursive_mutex> guard(latch_);
+  return BasicPageGuard(this, FetchPgImp(page_id)).UpgradeWrite();
+}
 
 }  // namespace bustub
