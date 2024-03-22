@@ -70,6 +70,12 @@ class BufferPoolManagerInstance : public BufferPoolManager {
    * @note 包装器，用于实现自动 unpin
    */
   auto NewPageGuarded(page_id_t *page_id) -> BasicPageGuard;
+  auto NewWritePageGuarded(page_id_t *page_id) -> WritePageGuard;
+
+  /**
+   * 反映当前缓冲池空闲(可以驱逐 + free frame)
+  */
+  auto GetAvailableSize() -> int;
 
  protected:
   /**
@@ -177,17 +183,10 @@ class BufferPoolManagerInstance : public BufferPoolManager {
   void PinPage(Page *page, frame_id_t frame_id);
 
   /**
-   * 把一个 page 的 data 及其所有元数据都完全清空
+   * 把一个 page 的 data 及其所有元数据都完全清空。
+   * @note 本质上是在清空 buffer_pool_manager_ 的一个 frame
    */
-  void ClaerPage(Page *page) {
-    if (page == nullptr) {
-      return;
-    }
-    page->ResetMemory();   // 清空 page
-    page->pin_count_ = 0;  // 恢复如初，注意把 META DATA 也要恢复！
-    page->is_dirty_ = false;
-    page->page_id_ = INVALID_PAGE_ID;
-  }
+  void ClearPage(Page *page);
 
   friend class BasicPageGuard;
   /** Number of pages in the buffer pool. */
@@ -200,7 +199,7 @@ class BufferPoolManagerInstance : public BufferPoolManager {
   /** Array of buffer pool pages. 它是索引就是 frame_id. 里面的 Page 维护了这个页的各种状态，以及 page 包含的数据 */
   Page *pages_;
   /** Pointer to the disk manager. */
-  DiskManager *disk_manager_ __attribute__((__unused__));
+  DiskManager *disk_manager_;
   /** Pointer to the log manager. Please ignore this for P1. */
   LogManager *log_manager_ __attribute__((__unused__));
   /** Page table for keeping track of buffer pool pages. [page_id --> frame_id] */
@@ -223,7 +222,7 @@ class BufferPoolManagerInstance : public BufferPoolManager {
    * @brief Deallocate a page on disk. Caller should acquire the latch before calling this function.
    * @param page_id id of the page to deallocate
    */
-  void DeallocatePage(__attribute__((unused)) page_id_t page_id) {
+  void DeallocatePage(page_id_t page_id) {
     // This is a no-nop right now without a more complex data structure to track deallocated pages
   }
 };
@@ -233,7 +232,11 @@ class BufferPoolManagerInstance : public BufferPoolManager {
  */
 class BasicPageGuard {
  public:
-  BasicPageGuard() = default;
+  BasicPageGuard() {
+    this->bpm_ = nullptr;
+    this->page_ = nullptr;
+    this->is_dirty_ = false;
+  }
 
   BasicPageGuard(BufferPoolManagerInstance *bpm, Page *page) : bpm_(bpm), page_(page) {}
   // 所有的拷贝构造都被禁用了
@@ -311,22 +314,39 @@ class BasicPageGuard {
    */
   auto UpgradeWrite() -> WritePageGuard;
 
-  auto PageId() -> page_id_t { return page_->GetPageId(); }
+  /**
+   * page_ 是 null 的时候，返回 -1 (INVALID_PAGE_ID)
+   */
+  auto PageId() -> page_id_t;
 
-  auto GetData() -> const char * { return page_->GetData(); }
+  auto PagePinCount() -> int;
+
+  /**
+   * 当 page 是 null 的时候，返回 nullptr
+   */
+  auto GetData() -> char * { return page_ == nullptr ? nullptr : page_->GetData(); }
 
   auto IsClear() -> bool { return page_ == nullptr && bpm_ == nullptr && !is_dirty_; }
 
+  /**
+   * 空间已经分配好了，获取 page
+   */
   template <class T>
-  auto As() -> const T * {
-    return reinterpret_cast<const T *>(GetData());
+  auto As() -> T * {
+    return reinterpret_cast<T *>(GetData());
   }
 
+  /**
+   * 获取数据，然后将这个 page 标记为脏
+   */
   auto GetDataMut() -> char * {
     is_dirty_ = true;
     return page_->GetData();
   }
 
+  /**
+   * 如果你准备写入 page，就可以调用这个功能
+   */
   template <class T>
   auto AsMut() -> T * {
     return reinterpret_cast<T *>(GetDataMut());
@@ -352,8 +372,10 @@ class ReadPageGuard {
    * 补充移动构造函数
    */
   explicit ReadPageGuard(BasicPageGuard &&that) noexcept : guard_{std::move(that)} {
-    //! \bug 只有通过 basic 构造(升级)才会加上锁，其它情况不加锁
-    this->guard_.page_->RLatch();  // 加上读锁
+    if (this->guard_.page_ != nullptr) {
+      //! \bug 只有通过 basic 构造(升级)才会加上锁，其它情况不加锁
+      this->guard_.page_->RLatch();  // 加上读锁
+    }
   }
   /**
    * @brief Move constructor for ReadPageGuard
@@ -371,6 +393,10 @@ class ReadPageGuard {
    * replace the contents of this one with that one.
    */
   auto operator=(ReadPageGuard &&that) noexcept -> ReadPageGuard & {
+    if (this == &that) {
+      return *this;
+    }
+    Drop();                           // 先放弃当前自己的资源
     guard_ = std::move(that.guard_);  // 等号赋值转移所有权，这可以保证锁的状态是不变的。
     return *this;
   }
@@ -390,8 +416,10 @@ class ReadPageGuard {
     if (this->guard_.IsClear()) {
       return;
     }
-    this->guard_.page_->RUnlatch();  // 先释放读锁
-    this->guard_.Drop();             // unpin_page
+    if (this->guard_.page_ != nullptr) {
+      this->guard_.page_->RUnlatch();  // 先释放读锁
+    }
+    this->guard_.Drop();  // unpin_page
   }
 
   /**
@@ -407,7 +435,7 @@ class ReadPageGuard {
   auto GetData() -> const char * { return guard_.GetData(); }
 
   template <class T>
-  auto As() -> const T * {
+  auto As() -> T * {
     return guard_.As<T>();
   }
 
@@ -424,8 +452,11 @@ class WritePageGuard {
 
   explicit WritePageGuard(BasicPageGuard &&that) noexcept : guard_{std::move(that)} {
     //! \bug 只有通过 basic 构造(升级)才会加上锁，其它情况不加锁
-    this->guard_.page_->WLatch();   // 加上写锁
-    this->guard_.is_dirty_ = true;  // 页被写脏了
+    if (this->guard_.page_ != nullptr) {
+      this->guard_.page_->WLatch();  // 加上写锁
+      // std::cout << this->guard_.page_->GetPageId() << " 写锁已经获取" << std::endl;
+      this->guard_.is_dirty_ = true;  // 页被写脏了
+    }
   }
 
   /**
@@ -441,8 +472,13 @@ class WritePageGuard {
    *
    * Very similar to BasicPageGuard. Given another WritePageGuard,
    * replace the contents of this one with that one.
+   * @bug 对面的资源进来了，自己原来的锁是不是要释放掉？应该先释放内部资源
    */
   auto operator=(WritePageGuard &&that) noexcept -> WritePageGuard & {
+    if (this == &that) {
+      return *this;
+    }
+    Drop();  // 先释放自己内部的资源[注意：互斥锁一次只能获得一个]
     guard_ = std::move(that.guard_);
     return *this;
   }
@@ -460,8 +496,10 @@ class WritePageGuard {
     if (this->guard_.IsClear()) {
       return;
     }
-    this->guard_.page_->WUnlatch();  // 先释放写锁
-    this->guard_.Drop();             // unpin_page
+    if (this->guard_.page_ != nullptr) {
+      this->guard_.page_->WUnlatch();  // 先释放写锁
+    }
+    this->guard_.Drop();  // unpin_page
   }
 
   /**

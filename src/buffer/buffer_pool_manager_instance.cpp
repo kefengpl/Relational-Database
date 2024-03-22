@@ -11,7 +11,7 @@ BufferPoolManagerInstance::BufferPoolManagerInstance(size_t pool_size, DiskManag
   // we allocate a consecutive memory space for the buffer pool
   pages_ = new Page[pool_size_];
   page_table_ = new ExtendibleHashTable<page_id_t, frame_id_t>(bucket_size_);
-  replacer_ = new LRUKReplacer(pool_size, replacer_k);
+  replacer_ = new LRUKReplacer(pool_size_, replacer_k);
 
   // Initially, every page is in the free list.
   for (size_t i = 0; i < pool_size_; ++i) {
@@ -25,6 +25,17 @@ BufferPoolManagerInstance::~BufferPoolManagerInstance() {
   delete replacer_;
 }
 
+void BufferPoolManagerInstance::ClearPage(Page* page) {
+    if (page == nullptr) {
+      return;
+    }
+    page->ResetMemory();                      // 清空 page
+    page->pin_count_ = 0;                     // 恢复如初，注意把 META DATA 也要恢复！
+    page->is_dirty_ = false;
+    page->page_id_ = INVALID_PAGE_ID;
+}
+
+
 auto BufferPoolManagerInstance::NewPgImp(page_id_t *page_id) -> Page * {
   std::lock_guard<std::recursive_mutex> guard(latch_);
   frame_id_t allocated_frame{};
@@ -33,6 +44,9 @@ auto BufferPoolManagerInstance::NewPgImp(page_id_t *page_id) -> Page * {
 
 auto BufferPoolManagerInstance::FetchPgImp(page_id_t page_id) -> Page * {
   Page *page{nullptr};
+  if (page_id == INVALID_PAGE_ID) {
+    return page;
+  }  // 补充：处理 page_id 本身无效的情况
   frame_id_t allocated_frame{};
   // 缩小锁的范围
   std::unique_lock<std::recursive_mutex> guard(latch_);
@@ -70,7 +84,7 @@ auto BufferPoolManagerInstance::AllocateFrameForPage(bool new_page, page_id_t *p
     UnsafeFlushPgImp(page->GetPageId());
   }
   page_table_->Remove(page->GetPageId());  // 你应该将它从 page_table 的映射关系移除
-  ClaerPage(page);
+  ClearPage(page); // 清空 page [即清空这个 frame]
   if (new_page) {
     *page_id = AllocatePage();  // 如果是新页，分配新的 page_id，否则沿用原来的 page_id
   }
@@ -93,7 +107,7 @@ void BufferPoolManagerInstance::PinPage(Page *page, frame_id_t frame_id) {
 auto BufferPoolManagerInstance::UnpinPgImp(page_id_t page_id, bool is_dirty) -> bool {
   std::lock_guard<std::recursive_mutex> guard(latch_);
   frame_id_t frame_id{};
-  Page *page{FindPage(page_id, frame_id)};
+  Page *page{FindPage(page_id, frame_id)}; // 为什么会找不到这个叶子结点？
   if (page == nullptr) {
     return false;
   }
@@ -162,7 +176,7 @@ auto BufferPoolManagerInstance::DeletePgImp(page_id_t page_id) -> bool {
   replacer_->Remove(frame_id);     // 将对应的 frame_id 移除
   page_table_->Remove(page_id);    // 从页表中移除映射关系
   free_list_.push_back(frame_id);  // 恢复空闲链表
-  ClaerPage(page);                 // page 清空
+  ClearPage(page);                 // page 清空
   DeallocatePage(page_id);         // 这是一个“模拟”的功能，它假设释放了磁盘上的一片内存
   return true;
 }
@@ -189,6 +203,10 @@ void BasicPageGuard::Drop() {
 
 auto BufferPoolManagerInstance::AllocatePage() -> page_id_t { return next_page_id_++; }
 
+auto BufferPoolManagerInstance::GetAvailableSize() -> int {
+  return free_list_.size() + replacer_->Size();
+}
+
 /**
  * page_guard 代码区
  */
@@ -212,12 +230,22 @@ auto BasicPageGuard::UpgradeWrite() -> WritePageGuard {
   return WritePageGuard(std::move(*this));  // 升级
 }
 
+auto BasicPageGuard::PageId() -> page_id_t { return page_ == nullptr ? INVALID_PAGE_ID : page_->GetPageId(); }
+
+auto BasicPageGuard::PagePinCount() -> int { return page_ == nullptr ? INVALID_PAGE_ID : page_->GetPinCount(); }
+
 /**
  * 组合 page_guard 形成的包装方法区
  */
+
 auto BufferPoolManagerInstance::NewPageGuarded(page_id_t *page_id) -> BasicPageGuard {
   std::lock_guard<std::recursive_mutex> guard(latch_);
   return BasicPageGuard(this, NewPgImp(page_id));
+}
+
+auto BufferPoolManagerInstance::NewWritePageGuarded(page_id_t *page_id) -> WritePageGuard {
+  std::lock_guard<std::recursive_mutex> guard(latch_);
+  return BasicPageGuard(this, NewPgImp(page_id)).UpgradeWrite();
 }
 
 auto BufferPoolManagerInstance::FetchPageBasic(page_id_t page_id) -> BasicPageGuard {

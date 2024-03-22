@@ -1,13 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-//                         CMU-DB Project (15-445/645)
-//                         ***DO NO SHARE PUBLICLY***
-//
-// Identification: src/include/page/b_plus_tree_leaf_page.h
-//
-// Copyright (c) 2018, Carnegie Mellon University Database Group
-//
-//===----------------------------------------------------------------------===//
 #pragma once
 
 #include <utility>
@@ -49,10 +39,12 @@ class BPlusTreeLeafPage : public BPlusTreePage {
   auto GetNextPageId() const -> page_id_t;
   void SetNextPageId(page_id_t next_page_id);
   auto KeyAt(int index) const -> KeyType;
+  auto ValueAt(int index) const -> ValueType;
+  auto GetArray() -> MappingType * { return array_; }
 
  private:
   page_id_t next_page_id_;
-  // Flexible array member for page data.
+  // Flexible array member for page data. [灵活数组，使得这个页的大小是 4096]
   MappingType array_[1];
 };
 }  // namespace bustub

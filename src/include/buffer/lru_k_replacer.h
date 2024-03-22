@@ -30,9 +30,6 @@ namespace bustub {
 class LRUKReplacer {
  public:
   /**
-   *
-   * TODO(P1): Add implementation
-   *
    * @brief a new LRUKReplacer.
    * @param num_frames the maximum number of frames the LRUReplacer will be required to store
    */
@@ -111,10 +108,8 @@ class LRUKReplacer {
   void UnSafeRemove(frame_id_t frame_id);
 
   /**
-   * TODO(P1): Add implementation
-   *
    * @brief Return replacer's size, which tracks the number of evictable frames.
-   *
+   * @note 概念区分：你需要将它和 free_list_ 区分开来。只有一个 frame 读入页之后才会驱逐。
    * @return size_t
    */
   auto Size() -> size_t;
