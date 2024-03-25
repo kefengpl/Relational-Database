@@ -22,10 +22,7 @@ BPLUSTREE_TYPE::BPlusTree(std::string name, BufferPoolManager *buffer_pool_manag
           dynamic_cast<BufferPoolManagerInstance *>(buffer_pool_manager)),  // 使用动态类型转换强转为 bpml
       comparator_(comparator),
       leaf_max_size_(leaf_max_size),
-      internal_max_size_(internal_max_size) {
-        page_id_t temp_id{};
-        root_guard_ = buffer_pool_manager->NewWritePageGuarded(temp_id); 
-      }
+      internal_max_size_(internal_max_size) {}
 
 /**
  * Helper function to decide whether current b+tree is empty
@@ -40,7 +37,6 @@ auto BPLUSTREE_TYPE::IsEmpty() const -> bool { return root_page_id_ == INVALID_P
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::InitializeRoot() -> WritePageGuard {
-  // std::lock_guard<std::recursive_mutex> guard(latch_);
   root_page_id_ = HEADER_PAGE_ID;
   return buffer_pool_manager_->FetchPageWrite(HEADER_PAGE_ID);
 }
@@ -483,13 +479,9 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, page_id_
     if (leaf_page->IsRootPage()) {  // 一个特别情况，叶子结点是根，此时需要生成新的根
       //! \note 对于更新 ROOT 的情况，或许需要加锁保护
       // std::lock_guard<std::recursive_mutex> guard{latch_};
-      // std::cout << "线程：" << std::this_thread::get_id() << "执行到了更新ROOT" << std::endl;
       page_id_t new_root_id{};  // 产生新的 ROOT 页
       WritePageGuard new_root_guard = buffer_pool_manager_->NewWritePageGuarded(&new_root_id);
       InternalPage *new_root_page{NewRootInternalPage(new_root_guard, new_root_id)};
-
-      // BufferPoolTracer(key);
-
       if (new_root_page == nullptr) {
         return InsertStatus::FAILED_INSERT;
       }
@@ -583,13 +575,8 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
   if (SearchBPlusTree(key, root_page_id_, dummy_guard).has_value()) {
     return false;
   }
-  // BufferPoolTracer(key);
-  latch_.lock();
-  // std::cout <<  "线程：" << std::this_thread::get_id() << " 插入元素计数：" << count++ << std::endl;
-  latch_.unlock();
   // 否则执行复杂的插入过程，从根结点出发，开始执行插入
   Insert(key, value, root_page_id_, INVALID_PAGE_ID);
-  // std::cout <<  "线程：" << std::this_thread::get_id() << " 插入元素成功：" << (count - 1) << std::endl;
   // 清空 guard_queue，因为这些变量将不再被使用，访问未知内存会带来风险
   guard_queue.clear();
   return true;  // 一般而言，这样总能插入成功
@@ -1014,7 +1001,7 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *transaction) {
   }  // 什么也找不到，立即返回
   // 随后，进入十分复杂的删除操作
   WritePageGuard temp_guard{};
-  Remove(key, root_page_id_, root_guard_);
+  Remove(key, root_page_id_, temp_guard);
   //! \note 每次用完 guard_queue_ 后一定要记得清空数组！
   remove_guard_queue.clear();
 }

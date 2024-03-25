@@ -322,7 +322,6 @@ class BPlusTree {
   // member variable [你需要将你的BufferPoolManagerInstance嵌入到这里，具体而言，使用动态类型转换]
   std::string index_name_;
   page_id_t root_page_id_;
-  // BufferPoolManager *buffer_pool_manager_; 注意：这是原有的数据结构
   BufferPoolManagerInstance *buffer_pool_manager_;
   KeyComparator comparator_;
   int leaf_max_size_;
@@ -330,7 +329,5 @@ class BPlusTree {
   std::recursive_mutex empty_latch_;  // 用于初始化
   std::vector<InternalPair> splitted_;
   std::recursive_mutex latch_; 
-
-  WritePageGuard root_guard_;
 };
 }  // namespace bustub
