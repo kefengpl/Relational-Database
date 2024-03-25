@@ -7,6 +7,7 @@
 #include <sstream>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "concurrency/transaction.h"
@@ -106,8 +107,8 @@ class BPlusTree {
    * @return 适合插入的下标 比如原来的数组大小是 n，下标是 0...n - 1，那么返回的范围是 0 <= return <= n。
    * 等于 n 表示需要插在数组的末尾。
    * @note 如果 page == null，直接返回 -1
-  */
-  auto SearchLeafInsert(const KeyType &key, LeafPage* page) -> int;
+   */
+  auto SearchLeafInsert(const KeyType &key, LeafPage *page) -> int;
 
   /**
    * 在非叶子结点中搜索 key, 寻找第一个 >= key 的 index
@@ -141,6 +142,14 @@ class BPlusTree {
   auto SearchBPlusTree(const KeyType &key, page_id_t page, ReadPageGuard &parent_guard) -> std::optional<ValueType>;
 
   /**
+   * 从某个 internal_page/ page 出发(以它为根)，找到 key 所在的叶子结点的 page_id
+   * @return 这个 key 所在叶子结点对应的 page_id。查找失败则返回 std::nullopt
+   * @note 锁的释放策略：下一个结点获取到锁，就可以立即释放双亲结点的锁
+   * @note 为什么要设立这个函数？答：给后面的迭代器使用
+   */
+  auto SearchTargetLeaf(const KeyType &key, page_id_t page_id, ReadPageGuard &parent_guard) -> std::optional<page_id_t>;
+
+  /**
    * 进行 B+ 树插入操作
    * @param page_id 它的作用是表示是从哪个结点开始向下查找合适位置并插入
    * @return 返回插入状态：成功插入，插入且分裂，插入失败(因为key已经在B+树里了)
@@ -155,7 +164,7 @@ class BPlusTree {
    * 叶子结点的分裂
    * @note 千万不要使得数组越界，不要进行溢出插入，这会让你死的很惨！
    */
-  auto SplitLeaf(LeafPage *old_page, LeafPage *new_page, MappingType& inserting_pair) -> void;
+  auto SplitLeaf(LeafPage *old_page, LeafPage *new_page, MappingType &inserting_pair) -> void;
 
   /**
    * 将新的元素插入内部结点。如果结点已经满了就禁止插入
@@ -270,15 +279,16 @@ class BPlusTree {
   void InternalMerge(InternalPage *left_page, InternalPage *right_page, InternalPage *parent_page);
 
   /**
-   * 在插入时，如果发现某个结点未满，则调用此函数，让 guard_queue_ 除了最后一个元素以外都释放掉
+   * 在插入时，如果发现某个结点未满，则调用此函数，让 guard_queue_ 除了最后一个元素以外都释放掉。
+   * 在删除时，如果某个结点半满以上，则调用此函数，让 guard_queue_ 除了最后一个元素以外都释放掉。
    * @note 该方法同时也会把相应的指针元素移除数组
    */
-  void GuardDropForInsert();
+  void GuardDrop(std::vector<WritePageGuard *> &guard_queue_);
 
   /**
    * 用于打印 B+ 树各类操作过程中缓冲池大小
-  */
-  void BufferPoolTracer(const KeyType& key);
+   */
+  void BufferPoolTracer(const KeyType &key);
 
   /**
    * 用于实现从 guard 到 page指针的转换。如果 page_guard 中的 page_ 是 null，返回 nullptr
@@ -290,6 +300,9 @@ class BPlusTree {
     }
     return page_guard.AsMut<T>();
   }
+  /**
+   * 用于实现从 guard 到 page指针的转换。如果 page_guard 中的 page_ 是 null，返回 nullptr
+   */
   template <typename T>
   auto PageFromGuard(ReadPageGuard &page_guard) -> T * {
     if (page_guard.PageId() == INVALID_PAGE_ID) {
@@ -316,9 +329,8 @@ class BPlusTree {
   int internal_max_size_;
   std::recursive_mutex empty_latch_;  // 用于初始化
   std::vector<InternalPair> splitted_;
-  std::vector<WritePageGuard *>
-      guard_queue_{};  // 用于记录 page_guard 序列，便于及时释放。递归每加一层，就添加一个元素。
-  std::recursive_mutex latch_;
-};
+  std::recursive_mutex latch_; 
 
+  WritePageGuard root_guard_;
+};
 }  // namespace bustub

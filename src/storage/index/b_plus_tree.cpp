@@ -7,6 +7,12 @@
 #include "storage/page/header_page.h"
 
 namespace bustub {
+//! \note 加锁和unpin是每个线程内部的事情，应该使用线程局部变量
+// 用于记录 page_guard 序列，便于及时释放。递归每加一层，就添加一个元素。[用于 Insert 函数]
+thread_local std::vector<WritePageGuard *> guard_queue{};
+// 用于记录 page_guard 序列，便于及时释放。递归每加一层，就添加一个元素。[用于 Remove 函数]
+thread_local std::vector<WritePageGuard *> remove_guard_queue{};
+
 INDEX_TEMPLATE_ARGUMENTS
 BPLUSTREE_TYPE::BPlusTree(std::string name, BufferPoolManager *buffer_pool_manager, const KeyComparator &comparator,
                           int leaf_max_size, int internal_max_size)
@@ -16,7 +22,10 @@ BPLUSTREE_TYPE::BPlusTree(std::string name, BufferPoolManager *buffer_pool_manag
           dynamic_cast<BufferPoolManagerInstance *>(buffer_pool_manager)),  // 使用动态类型转换强转为 bpml
       comparator_(comparator),
       leaf_max_size_(leaf_max_size),
-      internal_max_size_(internal_max_size) {}
+      internal_max_size_(internal_max_size) {
+        page_id_t temp_id{};
+        root_guard_ = buffer_pool_manager->NewWritePageGuarded(temp_id); 
+      }
 
 /**
  * Helper function to decide whether current b+tree is empty
@@ -31,18 +40,19 @@ auto BPLUSTREE_TYPE::IsEmpty() const -> bool { return root_page_id_ == INVALID_P
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::InitializeRoot() -> WritePageGuard {
+  // std::lock_guard<std::recursive_mutex> guard(latch_);
   root_page_id_ = HEADER_PAGE_ID;
   return buffer_pool_manager_->FetchPageWrite(HEADER_PAGE_ID);
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-void BPLUSTREE_TYPE::GuardDropForInsert() {
-  size_t n{guard_queue_.size()};
+void BPLUSTREE_TYPE::GuardDrop(std::vector<WritePageGuard *> &guard_queue) {
+  size_t n{guard_queue.size()};
   for (size_t i = 0; i < n - 1; ++i) {
-    guard_queue_[i]->Drop();
+    guard_queue[i]->Drop();
   }
-  std::swap(guard_queue_[n - 1], guard_queue_[0]);
-  guard_queue_.resize(1);
+  std::swap(guard_queue[n - 1], guard_queue[0]);
+  guard_queue.resize(1);
 }
 
 /*****************************************************************************
@@ -76,7 +86,7 @@ auto BPLUSTREE_TYPE::SearchLeaf(const KeyType &key, LeafPage *page) -> int {
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::SearchLeafInsert(const KeyType &key, LeafPage* page) -> int {
+auto BPLUSTREE_TYPE::SearchLeafInsert(const KeyType &key, LeafPage *page) -> int {
   if (page == nullptr) {
     return -1;
   }
@@ -99,7 +109,7 @@ auto BPLUSTREE_TYPE::SearchLeafInsert(const KeyType &key, LeafPage* page) -> int
       left = mid + 1;
     }
   }
-  return key_num; // 如果查找失败，说明所有元素都 < key，即 key 应该插到最后一个
+  return key_num;  // 如果查找失败，说明所有元素都 < key，即 key 应该插到最后一个
 }
 
 INDEX_TEMPLATE_ARGUMENTS
@@ -203,6 +213,39 @@ auto BPLUSTREE_TYPE::SearchBPlusTree(const KeyType &key, page_id_t page_id, Read
   return SearchBPlusTree(key, internal_page->ValueAt(target_idx), page_guard);
 }
 
+INDEX_TEMPLATE_ARGUMENTS
+auto BPLUSTREE_TYPE::SearchTargetLeaf(const KeyType &key, page_id_t page_id, ReadPageGuard &parent_guard)
+    -> std::optional<page_id_t> {
+  ReadPageGuard page_guard = buffer_pool_manager_->FetchPageRead(page_id);
+  if (page_guard.PageId() == INVALID_PAGE_ID) {
+    return std::nullopt;
+  }
+  parent_guard.Drop();  // 立即释放双亲结点的锁和 UNPIN
+  // 根结点不存在的情况，无法找到任何页
+  BPlusTreePage *page{PageFromGuard<BPlusTreePage>(page_guard)};
+  if (page == nullptr) {
+    return std::nullopt;
+  }
+  if (page->IsLeafPage()) {
+    LeafPage *leaf_page{PageFromGuard<LeafPage>(page_guard)};
+    int find_idx{SearchLeaf(key, leaf_page)};
+    if (find_idx == -1) {
+      return std::nullopt;
+    }
+    if (leaf_page == nullptr) {
+      return std::nullopt;
+    }
+    return std::optional<page_id_t>{leaf_page->GetPageId()};
+  }
+  // 现在这个 page 是非叶子结点，所以需要查找合适的指向下一步的指针
+  InternalPage *internal_page{PageFromGuard<InternalPage>(page_guard)};
+  int target_idx{SearchInternalFind(key, internal_page)};
+  if (internal_page == nullptr) {
+    return std::nullopt;
+  }
+  return SearchTargetLeaf(key, internal_page->ValueAt(target_idx), page_guard);
+}
+
 /*
  * Return the only value that associated with input key
  * This method is used for point query
@@ -210,6 +253,7 @@ auto BPLUSTREE_TYPE::SearchBPlusTree(const KeyType &key, page_id_t page_id, Read
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result, Transaction *transaction) -> bool {
+  std::lock_guard<std::recursive_mutex> guard{latch_};
   ReadPageGuard dummy_guard{};
   std::optional<ValueType> value{SearchBPlusTree(key, root_page_id_, dummy_guard)};
   if (!value.has_value()) {
@@ -257,15 +301,16 @@ auto BPLUSTREE_TYPE::InsertLeaf(const KeyType &key, const ValueType &value, Leaf
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::SplitLeaf(LeafPage *old_page, LeafPage *new_page, MappingType& inserting_pair) -> void {
+auto BPLUSTREE_TYPE::SplitLeaf(LeafPage *old_page, LeafPage *new_page, MappingType &inserting_pair) -> void {
   int leave_num{static_cast<int>(std::ceil(old_page->GetMaxSize() / 2))};  // 留在原来页的元素个数
   int n{old_page->GetSize()};                                              // 元素个数
   MappingType *new_array = new_page->GetArray();
   MappingType *old_array = old_page->GetArray();
-  MappingType overflow_pair{}; // 使用溢出 pair 在 old_page 上进行“模拟”插入
+  MappingType overflow_pair{};  // 使用溢出 pair 在 old_page 上进行“模拟”插入
   int insert_idx{SearchLeafInsert(inserting_pair.first, old_page)};
-  if (insert_idx == n) { overflow_pair = inserting_pair; }
-  else {
+  if (insert_idx == n) {
+    overflow_pair = inserting_pair;
+  } else {
     // 假装插入这个元素
     for (int i = n; i > insert_idx; --i) {
       if (i == n) {
@@ -394,7 +439,7 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, page_id_
   WritePageGuard page_guard{};
   if (page_id != INVALID_PAGE_ID) {
     page_guard = buffer_pool_manager_->FetchPageWrite(page_id);
-    guard_queue_.push_back(&page_guard);  // 给每个 page_guard 记录一个指针，从而访问该对象
+    guard_queue.push_back(&page_guard);  // 给每个 page_guard 记录一个指针，从而访问该对象
   } else {
     return InsertStatus::FAILED_INSERT;
   }
@@ -414,7 +459,7 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, page_id_
     }
     if (!leaf_page->IsFull()) {  // 叶子结点未满，可以插入
       // 叶子结点未满，则前面所有的锁皆可释放(DROP是安全的，只会释放一次)
-      GuardDropForInsert();
+      GuardDrop(guard_queue);
       InsertLeaf(key, value, leaf_page);
       return InsertStatus::SUCCESS_INSERT;
     }
@@ -434,15 +479,20 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, page_id_
       return InsertStatus::FAILED_INSERT;
     }
     new_leaf_page->Init(new_page_id, parent_page_id, leaf_max_size_);  // 初始化新的 Page
-    SplitLeaf(leaf_page, new_leaf_page, inserting_pair); // 修改后的代码：杜绝数组溢出
+    SplitLeaf(leaf_page, new_leaf_page, inserting_pair);               // 修改后的代码：杜绝数组溢出
     if (leaf_page->IsRootPage()) {  // 一个特别情况，叶子结点是根，此时需要生成新的根
-      page_id_t new_root_id{};      // 产生新的 ROOT 页
+      //! \note 对于更新 ROOT 的情况，或许需要加锁保护
+      // std::lock_guard<std::recursive_mutex> guard{latch_};
+      // std::cout << "线程：" << std::this_thread::get_id() << "执行到了更新ROOT" << std::endl;
+      page_id_t new_root_id{};  // 产生新的 ROOT 页
       WritePageGuard new_root_guard = buffer_pool_manager_->NewWritePageGuarded(&new_root_id);
       InternalPage *new_root_page{NewRootInternalPage(new_root_guard, new_root_id)};
 
       // BufferPoolTracer(key);
 
-      if (new_root_page == nullptr) { return InsertStatus::FAILED_INSERT; }
+      if (new_root_page == nullptr) {
+        return InsertStatus::FAILED_INSERT;
+      }
       InsertInternalPage(leaf_page->GetPageId(), new_leaf_page->KeyAt(0), new_leaf_page->GetPageId(), new_root_page);
       // 两个子结点指向新的 root
       leaf_page->SetParentPageId(root_page_id_);
@@ -465,7 +515,7 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, page_id_
     return InsertStatus::FAILED_INSERT;
   }
   if (!internal_page->IsFull()) {  // 释放所有祖先结点的锁，并 unpin 它们
-    GuardDropForInsert();
+    GuardDrop(guard_queue);
   }
   int target_idx{SearchInternalFind(key, internal_page)};
 
@@ -491,7 +541,9 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, page_id_
   // 需要拿上去的结点
   KeyType splitted_key{SplitInternal(internal_page, new_internal_page, inserting_pair)};
   if (internal_page->IsRootPage()) {  // 这个内部结点是根结点，那么需要创建新根
-    page_id_t new_root_id{};          // 产生新的 ROOT 页
+    //! \note 对于更新 ROOT 的情况，或许需要加锁保护
+    // std::lock_guard<std::recursive_mutex> guard{latch_};
+    page_id_t new_root_id{};  // 产生新的 ROOT 页
     WritePageGuard new_root_guard = buffer_pool_manager_->NewWritePageGuarded(&new_root_id);
     InternalPage *new_root_page{NewRootInternalPage(new_root_guard, new_root_id)};
     InsertInternalPage(internal_page->GetPageId(), splitted_key, new_internal_page->GetPageId(), new_root_page);
@@ -515,6 +567,7 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, page_id_
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transaction *transaction) -> bool {
+  std::lock_guard<std::recursive_mutex> guard{latch_};
   if (root_page_id_ == INVALID_PAGE_ID) {
     {
       std::lock_guard<std::recursive_mutex> latch_guard(latch_);
@@ -530,10 +583,15 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
   if (SearchBPlusTree(key, root_page_id_, dummy_guard).has_value()) {
     return false;
   }
+  // BufferPoolTracer(key);
+  latch_.lock();
+  // std::cout <<  "线程：" << std::this_thread::get_id() << " 插入元素计数：" << count++ << std::endl;
+  latch_.unlock();
   // 否则执行复杂的插入过程，从根结点出发，开始执行插入
   Insert(key, value, root_page_id_, INVALID_PAGE_ID);
+  // std::cout <<  "线程：" << std::this_thread::get_id() << " 插入元素成功：" << (count - 1) << std::endl;
   // 清空 guard_queue，因为这些变量将不再被使用，访问未知内存会带来风险
-  guard_queue_.clear();
+  guard_queue.clear();
   return true;  // 一般而言，这样总能插入成功
 }
 
@@ -668,7 +726,8 @@ auto BPLUSTREE_TYPE::LeafBorrow(LeafPage *cur_page, std::vector<page_id_t> &sibl
     left_guard = buffer_pool_manager_->FetchPageWrite(siblings[0]);
   }
   //! \bug 就是这里导致的死锁 left_guard = buffer_pool_manager_->FetchPageWrite(siblings[1]);
-  //! \bug 思考：为什么 left_guard 重复赋值两次会导致上面第一个if的锁无法释放？提示：原来的移动构造写的不对，不能放弃原有资源
+  //! \bug 思考：为什么 left_guard
+  //! 重复赋值两次会导致上面第一个if的锁无法释放？提示：原来的移动构造写的不对，不能放弃原有资源
   if (siblings[1] != INVALID_PAGE_ID) {
     right_guard = buffer_pool_manager_->FetchPageWrite(siblings[1]);
   }
@@ -734,7 +793,9 @@ auto BPLUSTREE_TYPE::InternalBorrow(InternalPage *cur_page, InternalPage *parent
     // 这个 removing_elem 的 parent page 更换了！，所以你需要重新设置
     WritePageGuard child_guard{buffer_pool_manager_->FetchPageWrite(removing_elem.second)};
     BPlusTreePage *child_page{PageFromGuard<BPlusTreePage>(child_guard)};
-    child_page->SetParentPageId(cur_page->GetPageId());
+    if (child_page != nullptr) {
+      child_page->SetParentPageId(cur_page->GetPageId());
+    }
     return InternalBorrowStatus::BORROW_LEFT;
   }
   if (right_page != nullptr && right_page->GtHalfFull()) {
@@ -752,7 +813,9 @@ auto BPLUSTREE_TYPE::InternalBorrow(InternalPage *cur_page, InternalPage *parent
     // 子页易主
     WritePageGuard child_guard{buffer_pool_manager_->FetchPageWrite(inserting_elem.second)};
     BPlusTreePage *child_page{PageFromGuard<BPlusTreePage>(child_guard)};
-    child_page->SetParentPageId(cur_page->GetPageId());
+    if (child_page != nullptr) {
+      child_page->SetParentPageId(cur_page->GetPageId());
+    }
     return InternalBorrowStatus::BORROW_RIGHT;
   }
   // 其它情况：两侧都不能借，那么就只能返回失败了
@@ -794,7 +857,9 @@ void BPLUSTREE_TYPE::InternalMerge(InternalPage *left_page, InternalPage *right_
   for (int i = 0; i < right_page->GetSize(); ++i) {
     WritePageGuard child_guard{buffer_pool_manager_->FetchPageWrite(right_array[i].second)};
     BPlusTreePage *child_page{PageFromGuard<BPlusTreePage>(child_guard)};
-    child_page->SetParentPageId(left_page->GetPageId());
+    if (child_page != nullptr) {
+      child_page->SetParentPageId(left_page->GetPageId());
+    }
   }
 }
 
@@ -804,6 +869,7 @@ auto BPLUSTREE_TYPE::Remove(const KeyType &key, page_id_t page_id, WritePageGuar
   WritePageGuard page_guard{};
   if (page_id != INVALID_PAGE_ID) {  // 必须先检查 page_id 不存在的情况，以免造成奇怪的错误
     page_guard = buffer_pool_manager_->FetchPageWrite(page_id);
+    remove_guard_queue.push_back(&page_guard);  // 让 page_guard 加入队列，便于及时释放
   }
   BPlusTreePage *page{PageFromGuard<BPlusTreePage>(page_guard)};
   if (page == nullptr) {
@@ -814,10 +880,14 @@ auto BPLUSTREE_TYPE::Remove(const KeyType &key, page_id_t page_id, WritePageGuar
     // 简单情况：leaf 本身就是 root，则此时直接删除这个 key 即可
     // 其它简单情况：结点半满以上(不能等于半满)，无需进行其它操作
     if (leaf_page != nullptr && (leaf_page->IsRootPage() || leaf_page->GetKeyNum() > leaf_page->GetMinKeyNum())) {
+      //! \note 如果叶子结点在半满以上，可以释放所有祖先结点的 page guard(释放锁 + unpin)
+      if (leaf_page->GetKeyNum() > leaf_page->GetMinKeyNum()) {
+        GuardDrop(remove_guard_queue);
+      }
       bool if_success{RemoveOne(key, leaf_page)};
       //! \bug 特殊情况，如果根结点删除了最后一个 key，你应该清空 B+ 树
       if (leaf_page->IsRootPage() && leaf_page->GetKeyNum() == 0) {
-        std::lock_guard<std::recursive_mutex> latch_guard(latch_);  // 多个线程执行写入操作必须加锁
+        // std::lock_guard<std::recursive_mutex> latch_guard(latch_);  // 多个线程执行写入操作必须加锁
         root_page_id_ = INVALID_PAGE_ID;
       }
       return if_success ? RemoveStatus::SUCCESS_REMOVE : RemoveStatus::REMOVE_FAILED;
@@ -867,6 +937,10 @@ auto BPLUSTREE_TYPE::Remove(const KeyType &key, page_id_t page_id, WritePageGuar
 
   // 其它情况：page_id 是内部结点
   InternalPage *internal_page{PageFromGuard<InternalPage>(page_guard)};
+  //! \note 如果内部结点半满以上，则可以释放所有祖先结点
+  if (internal_page != nullptr && internal_page->GtHalfFull()) {
+    GuardDrop(remove_guard_queue);
+  }
   int target_idx{SearchInternalFind(key, internal_page)};
 
   // 递归调用
@@ -886,7 +960,9 @@ auto BPLUSTREE_TYPE::Remove(const KeyType &key, page_id_t page_id, WritePageGuar
   // 下面就是不满半数的情况
   //! \bug 对根结点的判断部分很可能存在问题
   if (internal_page->IsRootPage()) {
-    if (internal_page->GetKeyNum() == 0) {        // 仅剩最左侧指针了
+    if (internal_page->GetKeyNum() == 0) {  // 仅剩最左侧指针了
+      //! \note 对于更新 ROOT 的情况，或许需要加锁保护
+      // std::lock_guard<std::recursive_mutex> guard{latch_};
       root_page_id_ = internal_page->ValueAt(0);  // 此时新的根结点诞生
       // 新的根结点的 PARENT_ID 应该变为 0
       WritePageGuard new_root_guard{buffer_pool_manager_->FetchPageWrite(root_page_id_)};
@@ -928,6 +1004,7 @@ auto BPLUSTREE_TYPE::Remove(const KeyType &key, page_id_t page_id, WritePageGuar
  */
 INDEX_TEMPLATE_ARGUMENTS
 void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *transaction) {
+  std::lock_guard<std::recursive_mutex> guard{latch_};
   if (root_page_id_ == INVALID_PAGE_ID) {
     return;
   }  // 当前的树是空的，立即返回
@@ -937,31 +1014,68 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *transaction) {
   }  // 什么也找不到，立即返回
   // 随后，进入十分复杂的删除操作
   WritePageGuard temp_guard{};
-  Remove(key, root_page_id_, temp_guard);
+  Remove(key, root_page_id_, root_guard_);
+  //! \note 每次用完 guard_queue_ 后一定要记得清空数组！
+  remove_guard_queue.clear();
 }
 
 /*****************************************************************************
  * INDEX ITERATOR
  *****************************************************************************/
-/*
+/**
  * Input parameter is void, find the leaftmost leaf page first, then construct
  * index iterator
  * @return : index iterator
  */
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE { return INDEXITERATOR_TYPE(); }
+auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE {
+  if (IsEmpty()) {
+    return INDEXITERATOR_TYPE();
+  }
+  page_id_t page_id{root_page_id_};
+  ReadPageGuard page_guard{buffer_pool_manager_->FetchPageRead(page_id)};
+  BPlusTreePage *page{PageFromGuard<BPlusTreePage>(page_guard)};
+  if (page == nullptr) {
+    return INDEXITERATOR_TYPE();
+  }
+  while (!page->IsLeafPage()) {  // 不是叶子结点就一路向左，一路向下
+    InternalPage *internal_page{PageFromGuard<InternalPage>(page_guard)};
+    if (internal_page != nullptr) {
+      page_id = internal_page->ValueAt(0);  // 最左侧指针
+    }
+    page_guard = buffer_pool_manager_->FetchPageRead(page_id);
+    page = PageFromGuard<BPlusTreePage>(page_guard);
+  }
+  // 现在已经找到了最左侧的叶子结点，构造这个函数
+  return INDEXITERATOR_TYPE(PageFromGuard<LeafPage>(page_guard), 0, buffer_pool_manager_);
+}
 
-/*
+/**
  * Input parameter is low key, find the leaf page that contains the input key
  * first, then construct index iterator
+ * @note 这里我们假设让游标(指针)恰好指向key。
  * @return : index iterator
  */
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> INDEXITERATOR_TYPE { return INDEXITERATOR_TYPE(); }
+auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> INDEXITERATOR_TYPE {
+  if (IsEmpty()) {
+    return INDEXITERATOR_TYPE();
+  }
+  ReadPageGuard dummy_guard{};
+  std::optional<page_id_t> find_res{SearchTargetLeaf(key, root_page_id_, dummy_guard)};
+  if (!find_res.has_value()) {
+    return INDEXITERATOR_TYPE();
+  }
+  ReadPageGuard page_guard{buffer_pool_manager_->FetchPageRead(find_res.value())};
+  LeafPage *leaf_page{PageFromGuard<LeafPage>(page_guard)};
+  int traget_idx{SearchLeaf(key, leaf_page)};
+  return INDEXITERATOR_TYPE(leaf_page, traget_idx, buffer_pool_manager_);
+}
 
-/*
+/**
  * Input parameter is void, construct an index iterator representing the end
  * of the key/value pair in the leaf node
+ * @note 一路向右下方走去，直到叶子结点
  * @return : index iterator
  */
 INDEX_TEMPLATE_ARGUMENTS
@@ -974,9 +1088,9 @@ INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::GetRootPageId() -> page_id_t { return 0; }
 
 INDEX_TEMPLATE_ARGUMENTS
-void BPLUSTREE_TYPE::BufferPoolTracer(const KeyType& key) {
-   std::cout << "当前正在插入：[" << key << "]"
-   << "当前缓冲池可用页的数目为：[" << buffer_pool_manager_->GetAvailableSize() << "]" << std::endl;
+void BPLUSTREE_TYPE::BufferPoolTracer(const KeyType &key) {
+  std::cout << "当前正在插入：[" << key << "]"
+            << "当前缓冲池可用页的数目为：[" << buffer_pool_manager_->GetAvailableSize() << "]" << std::endl;
 }
 
 /*****************************************************************************

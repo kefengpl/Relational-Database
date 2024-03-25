@@ -25,16 +25,15 @@ BufferPoolManagerInstance::~BufferPoolManagerInstance() {
   delete replacer_;
 }
 
-void BufferPoolManagerInstance::ClearPage(Page* page) {
-    if (page == nullptr) {
-      return;
-    }
-    page->ResetMemory();                      // 清空 page
-    page->pin_count_ = 0;                     // 恢复如初，注意把 META DATA 也要恢复！
-    page->is_dirty_ = false;
-    page->page_id_ = INVALID_PAGE_ID;
+void BufferPoolManagerInstance::ClearPage(Page *page) {
+  if (page == nullptr) {
+    return;
+  }
+  page->ResetMemory();   // 清空 page
+  page->pin_count_ = 0;  // 恢复如初，注意把 META DATA 也要恢复！
+  page->is_dirty_ = false;
+  page->page_id_ = INVALID_PAGE_ID;
 }
-
 
 auto BufferPoolManagerInstance::NewPgImp(page_id_t *page_id) -> Page * {
   std::lock_guard<std::recursive_mutex> guard(latch_);
@@ -84,7 +83,7 @@ auto BufferPoolManagerInstance::AllocateFrameForPage(bool new_page, page_id_t *p
     UnsafeFlushPgImp(page->GetPageId());
   }
   page_table_->Remove(page->GetPageId());  // 你应该将它从 page_table 的映射关系移除
-  ClearPage(page); // 清空 page [即清空这个 frame]
+  ClearPage(page);                         // 清空 page [即清空这个 frame]
   if (new_page) {
     *page_id = AllocatePage();  // 如果是新页，分配新的 page_id，否则沿用原来的 page_id
   }
@@ -107,7 +106,7 @@ void BufferPoolManagerInstance::PinPage(Page *page, frame_id_t frame_id) {
 auto BufferPoolManagerInstance::UnpinPgImp(page_id_t page_id, bool is_dirty) -> bool {
   std::lock_guard<std::recursive_mutex> guard(latch_);
   frame_id_t frame_id{};
-  Page *page{FindPage(page_id, frame_id)}; // 为什么会找不到这个叶子结点？
+  Page *page{FindPage(page_id, frame_id)};  // 为什么会找不到这个叶子结点？
   if (page == nullptr) {
     return false;
   }
@@ -203,9 +202,7 @@ void BasicPageGuard::Drop() {
 
 auto BufferPoolManagerInstance::AllocatePage() -> page_id_t { return next_page_id_++; }
 
-auto BufferPoolManagerInstance::GetAvailableSize() -> int {
-  return free_list_.size() + replacer_->Size();
-}
+auto BufferPoolManagerInstance::GetAvailableSize() -> int { return free_list_.size() + replacer_->Size(); }
 
 /**
  * page_guard 代码区

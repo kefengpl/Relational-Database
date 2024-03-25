@@ -74,7 +74,7 @@ class BufferPoolManagerInstance : public BufferPoolManager {
 
   /**
    * 反映当前缓冲池空闲(可以驱逐 + free frame)
-  */
+   */
   auto GetAvailableSize() -> int;
 
  protected:
