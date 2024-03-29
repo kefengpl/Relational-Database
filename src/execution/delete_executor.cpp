@@ -33,7 +33,10 @@ auto DeleteExecutor::Next(Tuple *tuple, RID *rid) -> bool {
         // 删除元组并更新索引
         table_heap_->MarkDelete(*rid, exec_ctx_->GetTransaction());
         for (IndexInfo* index_info : index_info_list) {
-            index_info->index_->DeleteEntry(child_tuple, *rid, exec_ctx_->GetTransaction());
+            //! \bug 你必须获得 (key) 这种字段！而不是整个元组...
+            Tuple key{child_tuple.KeyFromTuple(child_executor_->GetOutputSchema(), 
+                                     *(index_info->index_->GetKeySchema()), index_info->index_->GetKeyAttrs())};
+            index_info->index_->DeleteEntry(key, *rid, exec_ctx_->GetTransaction());
         }
         delete_num = delete_num.Add(Value(TypeId::INTEGER, 1));
     } while (child_executor_->Next(&child_tuple, rid));

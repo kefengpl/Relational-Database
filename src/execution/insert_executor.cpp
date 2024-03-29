@@ -41,7 +41,10 @@ auto InsertExecutor::Next(Tuple *tuple, RID *rid) -> bool {
         table_heap_->InsertTuple(child_tuple, rid, exec_ctx_->GetTransaction());
         // 插入一个元素就立即对该表的所有索引进行更新
         for (IndexInfo* index_info : index_info_list) {
-            index_info->index_->InsertEntry(child_tuple, *rid, exec_ctx_->GetTransaction());
+            //! \bug 你必须获得 (key) 这种字段！而不是整个元组...
+            Tuple key{child_tuple.KeyFromTuple(child_executor_->GetOutputSchema(), 
+                                     *(index_info->index_->GetKeySchema()), index_info->index_->GetKeyAttrs())};
+            index_info->index_->InsertEntry(key, *rid, exec_ctx_->GetTransaction());
         }
         insert_num_ = insert_num_.Add(Value(TypeId::INTEGER, 1));
     } while (child_executor_->Next(&child_tuple, rid));
