@@ -1,15 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-//                         BusTub
-//
-// delete_executor.h
-//
-// Identification: src/include/execution/executors/delete_executor.h
-//
-// Copyright (c) 2015-19, Carnegie Mellon University Database Group
-//
-//===----------------------------------------------------------------------===//
-
 #pragma once
 
 #include <memory>
@@ -49,8 +37,10 @@ class DeleteExecutor : public AbstractExecutor {
    *
    * NOTE: DeleteExecutor::Next() does not use the `rid` out-parameter.
    * NOTE: DeleteExecutor::Next() returns true with the number of deleted rows produced only once.
+   * @note delete 会从 child 拿到一些元组，把它们删除即可。你依然要在这里写循环。
+   * @note 它的写法和 insert 的结构基本是一致的，没什么难度。
    */
-  auto Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool override;
+  auto Next(Tuple *tuple, RID *rid) -> bool override;
 
   /** @return The output schema for the delete */
   auto GetOutputSchema() const -> const Schema & override { return plan_->OutputSchema(); };
@@ -60,5 +50,8 @@ class DeleteExecutor : public AbstractExecutor {
   const DeletePlanNode *plan_;
   /** The child executor from which RIDs for deleted tuples are pulled */
   std::unique_ptr<AbstractExecutor> child_executor_;
+  bool reentrant_; // 重入标记，检查是否重入
+  TableInfo* table_info_; // 单表删除。该变量储存了 table 的元信息
+  TableHeap* table_heap_; // 由于要删除元素，所以需要这个东西
 };
 }  // namespace bustub

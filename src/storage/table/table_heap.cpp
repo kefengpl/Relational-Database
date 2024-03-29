@@ -1,15 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-//                         BusTub
-//
-// table_heap.cpp
-//
-// Identification: src/storage/table/table_heap.cpp
-//
-// Copyright (c) 2015-2019, Carnegie Mellon University Database Group
-//
-//===----------------------------------------------------------------------===//
-
 #include <cassert>
 
 #include "common/logger.h"
@@ -17,7 +5,8 @@
 #include "storage/table/table_heap.h"
 
 namespace bustub {
-
+// without transaction version
+//! \note 提示：这里会指定这个 table 的 first_page_id_ 是多少。便于人类
 TableHeap::TableHeap(BufferPoolManager *buffer_pool_manager, LockManager *lock_manager, LogManager *log_manager,
                      page_id_t first_page_id)
     : buffer_pool_manager_(buffer_pool_manager),
@@ -179,6 +168,7 @@ auto TableHeap::GetTuple(const RID &rid, Tuple *tuple, Transaction *txn, bool ac
 auto TableHeap::Begin(Transaction *txn) -> TableIterator {
   // Start an iterator from the first page.
   // TODO(Wuwen): Hacky fix for now. Removing empty pages is a better way to handle this.
+  // 会从 table 的第一个页开始读取
   RID rid;
   auto page_id = first_page_id_;
   while (page_id != INVALID_PAGE_ID) {

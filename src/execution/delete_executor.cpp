@@ -1,15 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-//                         BusTub
-//
-// delete_executor.cpp
-//
-// Identification: src/execution/delete_executor.cpp
-//
-// Copyright (c) 2015-2021, Carnegie Mellon University Database Group
-//
-//===----------------------------------------------------------------------===//
-
 #include <memory>
 
 #include "execution/executors/delete_executor.h"
@@ -18,10 +6,41 @@ namespace bustub {
 
 DeleteExecutor::DeleteExecutor(ExecutorContext *exec_ctx, const DeletePlanNode *plan,
                                std::unique_ptr<AbstractExecutor> &&child_executor)
-    : AbstractExecutor(exec_ctx) {}
+    : AbstractExecutor(exec_ctx), plan_{plan}, child_executor_{std::move(child_executor)},
+      table_info_{exec_ctx_->GetCatalog()->GetTable(plan_->TableOid())}, 
+      table_heap_{table_info_->table_.get()} {}
 
-void DeleteExecutor::Init() { throw NotImplementedException("DeleteExecutor is not implemented"); }
+void DeleteExecutor::Init() { 
+    child_executor_->Init(); 
+    reentrant_ = false;
+}
 
-auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool { return false; }
+auto DeleteExecutor::Next(Tuple *tuple, RID *rid) -> bool { 
+    Tuple child_tuple{};
+    Value delete_num{TypeId::INTEGER, 0};
+    //! \note 此时的 rid 是有用的，可以被当作存储变量
+    if (!child_executor_->Next(&child_tuple, rid)) {
+        if (!reentrant_) {
+            *tuple = Tuple{std::vector<Value>{delete_num}, &GetOutputSchema()};
+            reentrant_ = true;
+            return true;
+        }
+        reentrant_ = true; // 多余语句...
+        return false;
+    }
+    std::vector<IndexInfo *> index_info_list{exec_ctx_->GetCatalog()->GetTableIndexes(table_info_->name_)};
+    do {
+        // 删除元组并更新索引
+        table_heap_->MarkDelete(*rid, exec_ctx_->GetTransaction());
+        for (IndexInfo* index_info : index_info_list) {
+            index_info->index_->DeleteEntry(child_tuple, *rid, exec_ctx_->GetTransaction());
+        }
+        delete_num = delete_num.Add(Value(TypeId::INTEGER, 1));
+    } while (child_executor_->Next(&child_tuple, rid));
+    // 写一个输出
+    *tuple = Tuple{std::vector<Value>{delete_num}, &GetOutputSchema()};
+    reentrant_ = true;
+    return true;
+}
 
 }  // namespace bustub

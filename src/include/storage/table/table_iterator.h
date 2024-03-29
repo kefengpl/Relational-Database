@@ -1,15 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-//                         BusTub
-//
-// table_iterator.h
-//
-// Identification: src/include/storage/table/table_iterator.h
-//
-// Copyright (c) 2015-2019, Carnegie Mellon University Database Group
-//
-//===----------------------------------------------------------------------===//
-
 #pragma once
 
 #include <cassert>
@@ -24,6 +12,8 @@ class TableHeap;
 
 /**
  * TableIterator enables the sequential scan of a TableHeap.
+ * @note TableHeap 就是一个 page 的 list[你可以将其抽象为磁盘上 table 具体内容本身]，为了使这个文件完整，
+ * 每个文件都相当于是双向链表的一个结点。
  */
 class TableIterator {
   friend class Cursor;
@@ -43,12 +33,12 @@ class TableIterator {
   inline auto operator!=(const TableIterator &itr) const -> bool { return !(*this == itr); }
 
   auto operator*() -> const Tuple &;
-
+  // 使用方法：重载的意义在于，-> 返回了一个对象，所以你调用 iterato r-> 操作符时，就像调用 tuple* (返回对象)的各种方法一样。
   auto operator->() -> Tuple *;
 
-  auto operator++() -> TableIterator &;
-
-  auto operator++(int) -> TableIterator;
+  auto operator++() -> TableIterator &; // 前置： ++i
+ 
+  auto operator++(int) -> TableIterator; // 后置： i++
 
   auto operator=(const TableIterator &other) -> TableIterator & {
     table_heap_ = other.table_heap_;

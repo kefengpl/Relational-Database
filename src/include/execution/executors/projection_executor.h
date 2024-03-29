@@ -1,15 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-//                         BusTub
-//
-// projection_executor.h
-//
-// Identification: src/include/execution/executors/projection_executor.h
-//
-// Copyright (c) 2015-2022, Carnegie Mellon University Database Group
-//
-//===----------------------------------------------------------------------===//
-
 #pragma once
 
 #include <memory>

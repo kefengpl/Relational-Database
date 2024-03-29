@@ -1,8 +1,12 @@
 # bustub 小型关系型数据库内核
 
-## Proj2
+## Proj2 B+树索引
+- 注意：实现的索引中，叶子结点会指向对应记录的磁盘地址。这与 MySQL InnoDB 引擎是有所不同的。在 MySQL InnoDB 的索引中，主键(ID)索引的B+树叶子结点直接挂着记录的具体数据，这也被成为“B+树文件组织”结构。
+
 **难点1**
 - B+ 树本身逻辑复杂，既要考虑叶子结点，又考虑树结点，结点的分裂、合并、根的转换等十分复杂。但是，不必严格按照教材算法实现，多看几个动态插入、删除的图解，然后凭感觉和逻辑就可以把B+树的增删改查写出来。
+- [待填充：描述B+TREE的插入]
+- [待填充：描述B+TREE的删除]
 
 **难点2**
 - 实现线程安全的、支持并发的B+树。此时，你需要用到 PageGuard 自动释放读锁，自动取消钉住页面。加锁算法：① 对于查找操作，子结点上锁之后，可立即释放双亲结点的锁；② 插入操作，子结点上锁且未满，(从而分裂不会影响到它的祖先)，释放所有祖先结点。③ 删除操作：对于某个内部结点 > 半满才可(注意是大于，不能等于)认为其祖先结点是安全的；对于某个叶子结点，也是 > 半满，则其祖先安全；此外，无论叶子、非叶子，对于根结点的要求低一些，满足至少有一个key(对内部结点而言，这意味着有两个孩子指针)即可。
@@ -45,10 +49,54 @@ auto operator=(ReadPageGuard &&that) noexcept -> ReadPageGuard & {
 **Bug3 B+树实现本身的BUG**
 - 比如左右兄弟写错、交换或借入的结点不对等各类问题。但幸好该实验提供了B+树可视化工具，方便调试。
 
-**告一段落**
-- 从 LaderBoard 上来看，二分查找带来的效率提升功不可没。在实现时，所有查找操作，包括查找插入位置，皆使用二分查找。
-- 一个比较明智的加锁策略：使用一个空白的 PageGuard 来作为“守门人”，守护 root_page_id_ 的安全，每当你要读取 root_page_id_ 的
-时候，你就假装要读取一个真正的 root_page_id_(冗余的空白 page)页。这样的管理策略是明智的，因为你可以手动释放 PageGuard。并且思路
-比加锁和解锁更容易管理。“守护”的范围应该是：读入 page_id 直到读取并生成 page_guard。
+**项目优化的一些要点**
+- 从 LaderBoard 的排名来看，二分查找带来的效率提升功不可没。在实现时，所有查找操作，包括查找插入位置，皆使用二分查找。
+- 此外，root_page_id_ 和 root_page 的变换是难以维护的，我也写不对。所以应该采用一个比较明智的策略，正如我们在leetcode上处理链表头结点时，往往添加一个哑结点，B+树为了更好地处理Root，可以使用一个额外的page来作为根结点的祖先，这个page只负责指向真正的根结点。然后成员变量 root_page_id_ 指向这个额外的页即可。每次直到读到根结点，并发现根结点是安全的，就释放额外的页上面的锁。比如插入操作时，根结点未满，则根是安全的；删除操作时，根结点的孩子指针个数 > 2(注意：等于2则根结点可能被合并，即此时根是不安全的) 就认为根结点是安全的，即可释放额外页。对于查找操作，读入根结点的页之后即可立即释放额外的页。如果一直持有额外的页，就相当于加大锁，[当然，还是有区别的，比如缓冲池的页还是可以及时被刷出到磁盘的]，没有什么并发性。
+- 加锁原则：先安全，后高并发。可以先加粒度比较大的锁，就像Java HashTable 那样，所有对外的方法都加大锁，先保证线程安全。然后逐步优化为细粒度锁。不要想着一步到位。
 
+**一些八股补充？**
+- 为什么 MySQL 采用 B+ TREE 索引的时候要将元组本身挂在叶子结点上？
+- 一个思考：在插入或者删除元组时更容易维护。因为你只需要对叶子结点对应的这个page(16KB)进行修改。如果你在叶子结点存放磁盘地址，这在查找时没什么问题，只不过会多一次 I/O；在插入元组时，如果你每次插入在数据表文件的末尾，那么索引的先后顺序将不再代表磁盘中元组的先后顺序，如果使用B+树进行范围查询，取出一系列记录磁盘地址后，可能带来较多的随机磁盘 I/O，而随机磁盘 I/O 的效率低于 顺序磁盘IO。当然，这些是机械盘的情况，如果使用 SSD 固态盘，情况可能会有所不同。如果每次插入元组，插入在数据表文件的以主码为顺序的合适位置，(主索引始终保持聚簇)，那么每次也需要维护磁盘文件中记录的顺序以保证元组的有序性，这可能需要在数据表文件中移动较多的记录。
+
+## Proj3 算子执行器
+**准备：代码是如何组织的？**
+- 假设我们执行 SELECT colA FROM __mock_table_1; 这个简单的查询。
+- 核心函数：直接锁定 execution_engine.h 里面的 Execute 函数。
+- const AbstractPlanNodeRef &plan 是经过了 Parser -> Binder -> Planner -> Optimizer 四个阶段产生的东西。这个 plan 打印出来的效果就是 
+```
+Projection { exprs=[#0.0] } | (__mock_table_1.colA:INTEGER)
+  MockScan { table=__mock_table_1 } | (__mock_table_1.colA:INTEGER, __mock_table_1.colB:INTEGER)
+```
+- Execute 函数中包含了 auto executor = ExecutorFactory::CreateExecutor(exec_ctx, plan); 它会递归地创建算子执行器，使得它形成一颗树。在构造
+子结点的时候，plan 也会做相应调整，使得子节点不可以看到父节点的 plan。plan = insert_plan->GetChildPlan()，比如以上面的 plan (子结点是 MockScan ，父结点(根结点)是Projection) 为例，两个结点的 plan_ 如下所示：
+```
+MockScan Executor 的 plan_ 变量是 [只有下面一行]
+MockScan { table=__mock_table_1 } | (__mock_table_1.colA:INTEGER, __mock_table_1.colB:INTEGER)
+
+Projection Executor 的 plan_ 变量是 [同时包含下面两行]
+Projection { exprs=[#0.0] } | (__mock_table_1.colA:INTEGER)
+  MockScan { table=__mock_table_1 } | (__mock_table_1.colA:INTEGER, __mock_table_1.colB:INTEGER)
+```
+- 提示：一个算子只能看到它自己及算子树中它的子结点的 plan，并且自己的 plan 永远处于最上层。
+- executor->Init(); 的调用也是递归的，相当于对整个算子树的所有 executor 都进行了初始化，递归出口或许是 MockScan Executor。MockScan Executor[全表扫描算子] 的初始化是 cursor_ = 0;
+- 每个算子的核心函数是 Next()，GetOutputSchema().GetColumnCount() 可以统计这个算子执行后输出的列数。因此，由于有 plan_ 变量，所以算子是知道自己输出的关系模式的。
+- expr->Evaluate(&child_tuple, child_executor_->GetOutputSchema()) 通过输入子结点的计算结果计算父结点的表达式。如果执行的是  exprs=[#0.0] 或者 exprs = [(2 + 3), (4 + 5)] 则这个 expr->Evaluate 似乎会执行两次...
+
+- values (1, 2, 'a'), (3, 4, 'b'); 这种可以直接创建一个两行，三列的表。它的执行计划如下
+```
+Values { rows=2 } | (__values#0.0:INTEGER, __values#0.1:INTEGER, __values#0.2:VARCHAR)
+```
+**顺序扫描，IndexScan的理解**
+- 为什么 order by 会用到 index scan ？ 
+- 因为可以这样执行：先在待排序 key 对应的 B+ 树索引中顺序扫描，按照顺序取出所有 key，随后去数据库表文件中逐个读取即可。由此就恰好按照完成
+了一次排序。[并且是按照 key 的顺序]
+- B+ 树的叶子结点的 value 表示其磁盘地址，或许正是我们要找的 RID，只要你有 rid，找到数据表文件的开头的磁盘地址[一般都是按照字节寻址]，经过一些偏移量的计算即可找到对应的元组。[key --> rid].
+- 所以, IndexScan 的实现思路是: 先顺序扫描索引,找到一个 RID 序列(按key有序),然后再去数据表文件(table_heap_)中按照 RID 逐个把元素查找出来即可.由于表文件是按照 RID 有序的, 所以这样查询文件效率更高,并且你查到的所有元组出现的先后次序都是有序的. 如果你不经过索引,你就不得不对文件进行外部排序,或者把所有元组读入然后内排,这是不可接受的. 
+- 索引扫描如下所示,所以你可以通过 index_oid (即索引的唯一标识 id) 直接定位到某个 key 索引的 B+ TREE.
+```
+IndexScan { index_oid=0 } | (t2.v3:INTEGER, t2.v4:INTEGER)
+```
+**项目本身的一些坑**
+- select * from t1 order by v1; 未必会优化为 IndexScan; 可能优化为 SeqScan + Sort....
+- 当然,  SeqScan + Sort 的实现方式就非常简单粗暴了, 把所有元素直接读入堆内存, 然后 std::sort 即可
 

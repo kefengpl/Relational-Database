@@ -1,15 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-//                         BusTub
-//
-// sort_executor.h
-//
-// Identification: src/include/execution/executors/sort_executor.h
-//
-// Copyright (c) 2015-2022, Carnegie Mellon University Database Group
-//
-//===----------------------------------------------------------------------===//
-
 #pragma once
 
 #include <memory>
@@ -35,7 +23,10 @@ class SortExecutor : public AbstractExecutor {
    */
   SortExecutor(ExecutorContext *exec_ctx, const SortPlanNode *plan, std::unique_ptr<AbstractExecutor> &&child_executor);
 
-  /** Initialize the sort */
+  /** 
+   * Initialize the sort
+   * Init 中你先把所有元组都 Fetch 出来到一个 vector, 然后抽取排序规则, 对这个 vector 进行 sort
+   */
   void Init() override;
 
   /**
@@ -52,5 +43,8 @@ class SortExecutor : public AbstractExecutor {
  private:
   /** The sort plan node to be executed */
   const SortPlanNode *plan_;
+  std::unique_ptr<AbstractExecutor> child_executor_;
+  std::vector<Tuple> tuple_list_;
+  size_t cursor_;
 };
 }  // namespace bustub

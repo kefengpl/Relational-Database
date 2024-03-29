@@ -97,6 +97,9 @@ struct IndexInfo {
  * The Catalog is a non-persistent catalog that is designed for
  * use by executors within the DBMS execution engine. It handles
  * table creation, table lookup, index creation, and index lookup.
+ * @note 直观理解：它包含了一个表在内存中的所有元信息，包括其索引的信息
+ * @note 大概意思就是 “一览表”。比如它包含了 table_ [oid-->table的元数据[关系、表名、OID等字段]]，
+ * table_name_ [表名 --> OID]。以及这个 TABLE 的索引的元信息，和 index_name_ [索引名 --> 索引 ID]
  */
 class Catalog {
  public:
@@ -155,7 +158,7 @@ class Catalog {
   }
 
   /**
-   * Query table metadata by name.
+   * Query table metadata by name. [返回的是 TABLE 的元信息]
    * @param table_name The name of the table
    * @return A (non-owning) pointer to the metadata for the table
    */
@@ -251,7 +254,7 @@ class Catalog {
   }
 
   /**
-   * Get the index `index_name` for table `table_name`.
+   * Get the index `index_name` for table `table_name`. [获得某个表上某个索引的元信息(MetaData)]
    * @param index_name The name of the index for which to query
    * @param table_name The name of the table on which to perform query
    * @return A (non-owning) pointer to the metadata for the index

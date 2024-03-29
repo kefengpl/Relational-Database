@@ -25,21 +25,21 @@ BPLUSTREE_TYPE::BPlusTree(std::string name, BufferPoolManager *buffer_pool_manag
       internal_max_size_(internal_max_size) {}
 
 /**
- * Helper function to decide whether current b+tree is empty
- * @note 当根结点 id 是 无效值 的时候，说明这个 B+ 树是空的
- */
-INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::IsEmpty() const -> bool { return root_page_id_ == INVALID_PAGE_ID; }
-
-/**
  * 初始化根结点 (Create Root Page，并且最开始根就是叶子结点)，但是不刷回磁盘
  * 提示：这个项目的假设 ROOT_PAGE 的 ID 固定 是0，所以直接 FETCH 就好
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::InitializeRoot() -> WritePageGuard {
-  root_page_id_ = HEADER_PAGE_ID;
-  return buffer_pool_manager_->FetchPageWrite(HEADER_PAGE_ID);
+  // root_page_id_ = HEADER_PAGE_ID;
+  // return buffer_pool_manager_->FetchPageWrite(HEADER_PAGE_ID);
+  HEADER_PAGE_ID header_guard{buffer_pool_manager_->FetchPageWrite(HEADER_PAGE_ID)};
+  buffer_pool_manager_->NewWritePageGuarded(&root_page_id_);
+  
+  return buffer_pool_manager_->NewWritePageGuarded(&root_page_id_);
 }
+
+INDEX_TEMPLATE_ARGUMENTS
+auto BPLUSTREE_TYPE::IsEmpty() const -> bool { return root_page_id_ == INVALID_PAGE_ID; }
 
 INDEX_TEMPLATE_ARGUMENTS
 void BPLUSTREE_TYPE::GuardDrop(std::vector<WritePageGuard *> &guard_queue) {

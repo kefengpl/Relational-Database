@@ -1,15 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-//                         BusTub
-//
-// mock_scan_executor.cpp
-//
-// Identification: src/execution/mock_scan_executor.cpp
-//
-// Copyright (c) 2015-2022, Carnegie Mellon University Database Group
-//
-//===----------------------------------------------------------------------===//
-
 #include "execution/executors/mock_scan_executor.h"
 #include <algorithm>
 #include <random>
@@ -395,8 +383,8 @@ void MockScanExecutor::Init() {
   // Reset the cursor
   cursor_ = 0;
 }
-
-auto MockScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
+//! \note 全表扫描执行器
+auto MockScanExecutor::Next(Tuple *tuple, RID *rid) -> bool { 
   if (cursor_ == size_) {
     // Scan complete
     return EXECUTOR_EXHAUSTED;

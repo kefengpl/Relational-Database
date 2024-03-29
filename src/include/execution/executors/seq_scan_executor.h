@@ -1,15 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-//                         BusTub
-//
-// seq_scan_executor.h
-//
-// Identification: src/include/execution/executors/seq_scan_executor.h
-//
-// Copyright (c) 2015-2021, Carnegie Mellon University Database Group
-//
-//===----------------------------------------------------------------------===//
-
 #pragma once
 
 #include <vector>
@@ -50,5 +38,7 @@ class SeqScanExecutor : public AbstractExecutor {
  private:
   /** The sequential scan plan node to be executed */
   const SeqScanPlanNode *plan_;
+  std::unique_ptr<TableHeap>* table_heap_ptr_;
+  TableIterator table_iterator_; // 维护一个单表迭代器
 };
 }  // namespace bustub

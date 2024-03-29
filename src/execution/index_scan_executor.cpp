@@ -1,22 +1,30 @@
-//===----------------------------------------------------------------------===//
-//
-//                         BusTub
-//
-// index_scan_executor.cpp
-//
-// Identification: src/execution/index_scan_executor.cpp
-//
-// Copyright (c) 2015-19, Carnegie Mellon University Database Group
-//
-//===----------------------------------------------------------------------===//
 #include "execution/executors/index_scan_executor.h"
 
 namespace bustub {
 IndexScanExecutor::IndexScanExecutor(ExecutorContext *exec_ctx, const IndexScanPlanNode *plan)
-    : AbstractExecutor(exec_ctx) {}
+    : AbstractExecutor(exec_ctx), plan_{plan}, index_info_{exec_ctx_->GetCatalog()->GetIndex(plan_->GetIndexOid())},
+      tree_{dynamic_cast<BPlusTreeIndexForOneIntegerColumn *>(index_info_->index_.get())}, 
+      table_info_{exec_ctx_->GetCatalog()->GetTable(index_info_->table_name_)},
+      table_heap_{table_info_->table_.get()},
+      sorted_rids_{} {} // 提示:反复扩容数组可能导致性能瓶颈
 
-void IndexScanExecutor::Init() { throw NotImplementedException("IndexScanExecutor is not implemented"); }
+void IndexScanExecutor::Init() {
+  auto tree_iterator_{tree_->GetBeginIterator()};
+  while (tree_iterator_ != tree_->GetEndIterator()) {
+    sorted_rids_.push_back((*tree_iterator_).second); // 所有 RID 加入 vector
+    ++tree_iterator_;
+  }
+  cursor_ = 0; // 初始游标是 0
+}
 
-auto IndexScanExecutor::Next(Tuple *tuple, RID *rid) -> bool { return false; }
-
+auto IndexScanExecutor::Next(Tuple *tuple, RID *rid) -> bool { 
+  // 再往后迭代没有元素了,则直接返回
+  if (cursor_ == sorted_rids_.size()) {
+    return false;
+  }
+  *rid = sorted_rids_[cursor_++]; // 获取目标的 rid, 然后游标向后移动
+  // 直接将获取到的元素存入 tuple_
+  table_heap_->GetTuple(*rid, tuple, exec_ctx_->GetTransaction()); 
+  return true;
+}
 }  // namespace bustub

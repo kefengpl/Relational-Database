@@ -174,7 +174,7 @@ see the execution plan of your query.
 
 auto BustubInstance::ExecuteSql(const std::string &sql, ResultWriter &writer) -> bool {
   auto txn = txn_manager_->Begin();
-  auto result = ExecuteSqlTxn(sql, writer, txn);
+  auto result = ExecuteSqlTxn(sql, writer, txn); //核心的执行函数
   txn_manager_->Commit(txn);
   delete txn;
   return result;
@@ -199,14 +199,14 @@ auto BustubInstance::ExecuteSqlTxn(const std::string &sql, ResultWriter &writer,
   }
 
   bool is_successful = true;
-
+  // the binder part. 绑定：比如将 name 字段替换为一些字符？ 表名称也替换为编号等。
   std::shared_lock<std::shared_mutex> l(catalog_lock_);
   bustub::Binder binder(*catalog_);
-  binder.ParseAndSave(sql);
+  binder.ParseAndSave(sql); // parse + binder 解析和绑定阶段结束
   l.unlock();
 
   for (auto *stmt : binder.statement_nodes_) {
-    auto statement = binder.BindStatement(stmt);
+    auto statement = binder.BindStatement(stmt); // 寻找 SQL 类型：是 UPDATE/CREATE/DELETE/EXPLAIN 等 [似乎不包括 SELECT]
     switch (statement->type_) {
       case StatementType::CREATE_STATEMENT: {
         const auto &create_stmt = dynamic_cast<const CreateStatement &>(*statement);
@@ -328,7 +328,7 @@ auto BustubInstance::ExecuteSqlTxn(const std::string &sql, ResultWriter &writer,
     // Return the result set as a vector of string.
     auto schema = planner.plan_->OutputSchema();
 
-    // Generate header for the result set.
+    // Generate header for the result set. [也就是表头]
     writer.BeginTable(false);
     writer.BeginHeader();
     for (const auto &column : schema.GetColumns()) {

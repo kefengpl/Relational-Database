@@ -146,6 +146,10 @@ class Value {
 
  protected:
   // The actual value item
+  /**
+   * union是一种特殊的数据类型，允许在相同的内存位置存储不同类型的数据。
+   * 但是同一个时间只能存储一种类型的数据。[你就以最简单的 int 为例即可] 结合下面的 type_ 字段即可读取对应类型的数值
+  */
   union Val {
     int8_t boolean_;
     int8_t tinyint_;

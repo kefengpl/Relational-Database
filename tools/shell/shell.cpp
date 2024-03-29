@@ -58,7 +58,8 @@ auto main(int argc, char **argv) -> int {
 
   auto prompt = use_emoji_prompt ? emoji_prompt : default_prompt;
 
-  while (true) {
+  while (true) { // 注意：此循环用于接收一条完整的查询语句，如果比如没有输入完成，他会不断打印 ... 让你继续输入完成。
+                 // 如果你输入了 select 1 + 2; 这是一个完整的，合法语句，可以直接进入下一阶段，本 while 循环到此结束。
     std::string query;
     bool first_line = true;
     while (true) {
@@ -90,13 +91,13 @@ auto main(int argc, char **argv) -> int {
       first_line = false;
     }
 
-    if (!disable_tty) {
+    if (!disable_tty) { // 你没有使用 clion，所以它没什么用
       linenoiseHistoryAdd(query.c_str());
     }
 
     try {
       auto writer = bustub::FortTableWriter();
-      bustub->ExecuteSql(query, writer);
+      bustub->ExecuteSql(query, writer); // 核心执行函数
       for (const auto &table : writer.tables_) {
         std::cout << table;
       }
