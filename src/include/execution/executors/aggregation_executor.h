@@ -1,15 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-//                         BusTub
-//
-// aggregation_executor.h
-//
-// Identification: src/include/execution/executors/aggregation_executor.h
-//
-// Copyright (c) 2015-2021, Carnegie Mellon University Database Group
-//
-//===----------------------------------------------------------------------===//
-
 #pragma once
 
 #include <memory>
@@ -64,20 +52,56 @@ class SimpleAggregationHashTable {
   }
 
   /**
-   * TODO(Student)
-   *
    * Combines the input into the aggregation result.
    * @param[out] result The output aggregate value
    * @param input The input value
+   * @note 将新的 (group by keys) --> (expression values) 融入到哈希表，具体的，
+   * group by keys 此时一定在哈希表存在了，你需要通过 expression values 更新这个
+   * group by keys 对应的 values 字段。
    */
   void CombineAggregateValues(AggregateValue *result, const AggregateValue &input) {
+    std::vector<Value>& aggregates{result->aggregates_};
+    const std::vector<Value>& input_values{input.aggregates_};
     for (uint32_t i = 0; i < agg_exprs_.size(); i++) {
       switch (agg_types_[i]) {
-        case AggregationType::CountStarAggregate:
+        case AggregationType::CountStarAggregate: // COUNT(*)，每次给计数 + 1 即可
+          aggregates[i] = aggregates[i].Add(Value(TypeId::INTEGER, 1));
+          break;
         case AggregationType::CountAggregate:
+          if (!input_values[i].IsNull()) {
+            if (aggregates[i].IsNull()) {
+              aggregates[i] = Value(TypeId::INTEGER, 1);
+            } else {
+              aggregates[i] = aggregates[i].Add(Value(TypeId::INTEGER, 1));
+            }
+          }
+          break;
         case AggregationType::SumAggregate:
+          if (!input_values[i].IsNull()) {
+            if (aggregates[i].IsNull()) {
+              aggregates[i] = input_values[i];
+            } else {
+              aggregates[i] = aggregates[i].Add(input_values[i]);
+            }
+          }
+          break;
         case AggregationType::MinAggregate:
+          if (!input_values[i].IsNull()) {
+            if (aggregates[i].IsNull()) {
+              aggregates[i] = input_values[i];
+            } else {
+              aggregates[i] = aggregates[i].Min(input_values[i]);
+            }
+          }          
+          break;
         case AggregationType::MaxAggregate:
+          if (!input_values[i].IsNull()) {
+            if (aggregates[i].IsNull()) {
+              aggregates[i] = input_values[i];
+            } else {
+              aggregates[i] = aggregates[i].Max(input_values[i]);
+            }
+          }    
           break;
       }
     }
@@ -89,10 +113,10 @@ class SimpleAggregationHashTable {
    * @param agg_val the value to be inserted
    */
   void InsertCombine(const AggregateKey &agg_key, const AggregateValue &agg_val) {
-    if (ht_.count(agg_key) == 0) {
+    if (ht_.count(agg_key) == 0) { // 如果 key 不存在，就插入这个元组
       ht_.insert({agg_key, GenerateInitialAggregateValue()});
     }
-    CombineAggregateValues(&ht_[agg_key], agg_val);
+    CombineAggregateValues(&ht_[agg_key], agg_val); // 否则就更新元组
   }
 
   /**
@@ -159,7 +183,11 @@ class AggregationExecutor : public AbstractExecutor {
   AggregationExecutor(ExecutorContext *exec_ctx, const AggregationPlanNode *plan,
                       std::unique_ptr<AbstractExecutor> &&child);
 
-  /** Initialize the aggregation */
+  /** 
+   * Initialize the aggregation
+   * @note 提示：聚合函数在有 group by 的时候最多包含两列，而没有 group by 的时候只包含你要汇总的那一列
+   * @note 个人认为，聚合函数的哈希表应该在这个函数被构建出来，也就是说：汇总的数据表应该在这里生成 
+   */
   void Init() override;
 
   /**
@@ -201,8 +229,9 @@ class AggregationExecutor : public AbstractExecutor {
   /** The child executor that produces tuples over which the aggregation is computed */
   std::unique_ptr<AbstractExecutor> child_;
   /** Simple aggregation hash table */
-  // TODO(Student): Uncomment SimpleAggregationHashTable aht_;
+  SimpleAggregationHashTable aht_;
   /** Simple aggregation hash table iterator */
-  // TODO(Student): Uncomment SimpleAggregationHashTable::Iterator aht_iterator_;
+  SimpleAggregationHashTable::Iterator aht_iterator_;
+  // bool reentrance_; // 重入标记
 };
 }  // namespace bustub
