@@ -9,6 +9,7 @@ IndexScanExecutor::IndexScanExecutor(ExecutorContext *exec_ctx, const IndexScanP
       sorted_rids_{} {} // 提示:反复扩容数组可能导致性能瓶颈
 
 void IndexScanExecutor::Init() {
+  sorted_rids_.clear(); //! \bug 多次调用 init 一定要清空所有数据结构
   auto tree_iterator_{tree_->GetBeginIterator()};
   while (tree_iterator_ != tree_->GetEndIterator()) {
     sorted_rids_.push_back((*tree_iterator_).second); // 所有 RID 加入 vector

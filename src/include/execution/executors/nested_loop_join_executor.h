@@ -56,7 +56,7 @@ class NestedLoopJoinExecutor : public AbstractExecutor {
    * 其它情况都返回 true
    * @note right_tuple 只有在函数返回 true 时才能正常使用。
   */
-  auto NextAndReset(std::unique_ptr<Tuple>& right_tuple) -> bool;
+  auto NextAndReset() -> bool;
 
  private:
   /** The NestedLoopJoin plan node to be executed. */
@@ -71,6 +71,8 @@ class NestedLoopJoinExecutor : public AbstractExecutor {
   std::unique_ptr<Tuple> right_tuple_; 
   /** 标志位：左侧元组是否悬浮？ */
   bool left_tuple_dangling_;
+  /** 右侧表是否是空？ */
+  bool right_table_empty_;
 };
 
 }  // namespace bustub

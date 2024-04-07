@@ -12,6 +12,7 @@ AggregationExecutor::AggregationExecutor(ExecutorContext *exec_ctx, const Aggreg
 
 void AggregationExecutor::Init() {
     child_->Init();
+    aht_.Clear(); //! \bug 每次初始化都需要清空原有汇总表，防止汇总结果每调用一次 Init 就进行一次累加
     Tuple child_tuple{};
     RID child_tuple_id{};
     // 处理空表的情况

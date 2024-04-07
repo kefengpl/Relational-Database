@@ -38,10 +38,12 @@ auto NestIndexJoinExecutor::Next(Tuple *tuple, RID *rid) -> bool {
           NextAndReset();
           return true;
         }
-        // 对于某个不能匹配的左表元组，如果是内连接，那么需要向下迭代
-        if (!NextAndReset()) {
-          return false;
-        }
+      }
+      // 对于某个不能匹配的左表元组，如果是内连接，那么需要向下迭代
+      if (!NextAndReset()) {
+        return false;
+      } else {
+        continue;
       }
     }
     std::unique_ptr<Tuple> right_tuple{std::make_unique<Tuple>()};
