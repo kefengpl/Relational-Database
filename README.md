@@ -122,8 +122,8 @@ student_name 和 score 这两列。然后，使用哈希函数，将表的记录
 - 当然,  SeqScan + Sort 的实现方式就非常简单粗暴了, 把所有元素直接读入堆内存, 然后 std::sort 即可
 
 **Bug记录区**
-- ① 非常好 BUG，爱来自 Proj2. Proj2 的 root page 需要你自己分配，header page 是系统赠送的，它维护了 B+ TREE 的元信息。每次变换 root_page_id_ 的时候，你都需要执行函数 UpdateRootPageId(0) 以更新这个 HeaderPage 里面的 root_page_id_. 在你原来的实现中，直接将 header_page 本身当成了 root page，所有 tree 的 root_page_id 都是 HEADER_PAGE_ID(0)。这可能在 proj2 中不会出现问题， 但是你用相同buffer_pool_ 构建第二个树的索引时，page_id 依然从0开始，则原来第一颗树的 root page 会被覆盖，于是你获得的索引就是乱序的，甚至都无法得知访问的是哪个B+树。我都不知道proj2测试为什么能过....
-- ② 神奇的错误：
+-**① 非常好 BUG，爱来自 Proj2.** Proj2 的 root page 需要你自己分配，header page 是系统赠送的，它维护了 B+ TREE 的元信息。每次变换 root_page_id_ 的时候，你都需要执行函数 UpdateRootPageId(0) 以更新这个 HeaderPage 里面的 root_page_id_. 在你原来的实现中，直接将 header_page 本身当成了 root page，所有 tree 的 root_page_id 都是 HEADER_PAGE_ID(0)。这可能在 proj2 中不会出现问题， 但是你用相同buffer_pool_ 构建第二个树的索引时，page_id 依然从0开始，则原来第一颗树的 root page 会被覆盖，于是你获得的索引就是乱序的，甚至都无法得知访问的是哪个B+树。我都不知道proj2测试为什么能过....
+- **② 神奇的错误：**
 ```C++
 // 错误的写法
 //! \note 注意：由于 DeleteEntry 第一个参数是 key，要求你传入只有一个 key 的元组 (key)，而不是整个 child 元组
@@ -134,8 +134,8 @@ Tuple key{child_tuple.KeyFromTuple(child_executor_->GetOutputSchema(),
                        *(index_info->index_->GetKeySchema()), index_info->index_->GetKeyAttrs())};
 index_info->index_->DeleteEntry(key, *rid, exec_ctx_->GetTransaction());
 ```
-- ② 可恶的嵌套循环连接 Join。错误体现在，在左连接的时候，如果生成悬浮元组，然后调用 NextAndReset ，随后函数直接返回；由于 NextAndReset 会导致右侧表的游标下移一个单位，所以会忽略右侧表的第一个元组，造成连接错误。
-- ③ 索引嵌套循环连接中的错误：
+- **③ 可恶的嵌套循环连接 Join。**错误体现在，在左连接的时候，如果生成悬浮元组，然后调用 NextAndReset ，随后函数直接返回；由于 NextAndReset 会导致右侧表的游标下移一个单位，所以会忽略右侧表的第一个元组，造成连接错误。
+- **④ 索引嵌套循环连接中的错误：**
 ```C++
 // 对于某个不能匹配的左表元组，如果是内连接，那么需要向下迭代
 if (!NextAndReset()) {
@@ -145,7 +145,7 @@ if (!NextAndReset()) {
             // 继续向下执行的话，由于 result(一个 vector) 是空，你取了 result[0] 这会直接给你 SEGMENTATION DEFAULT。
 }
 ```
-- ④ 构造与初始化：聚合函数聚合时的那个哈希表需要在 Init() 中初始化，否则你多次调用 Init()，聚合值会进行累计。
+- **⑤ 构造与初始化：**聚合函数聚合时的那个哈希表需要在 Init() 中初始化，否则你多次调用 Init()，聚合值会进行累计。
 类似的问题还存在于 IndexScan 的 sorted_rids_ 数据结构，每次初始化必须清空该结构。否则元素会在里面富集。
 下面的代码展示了正确的聚合函数初始化代码，并标记了 bug 所在之处。以 count 为例，如果没有 clear 那一行，将会
 使得该算子每次执行 Init 的结果累计，第一次是 2， 第二次是 4，第三次是 6...
