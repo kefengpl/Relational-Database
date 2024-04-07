@@ -100,12 +100,22 @@ IndexScan { index_oid=0 } | (t2.v3:INTEGER, t2.v4:INTEGER)
 - 下面我们以计算 select student_name, avg(score) from student_score group by student_name;(计算每个学生的平均成绩)
 - ① 分区：由于数据表很大，我们难以得到完全在内存中的哈希表。如果有 where 子句，那么你需要先过滤，然后再投影到仅剩 
 student_name 和 score 这两列。然后，使用哈希函数，将表的记录放到 B 个桶中。这里只是一个形式上的哈希，本质上不是 HASH，
-只是在分区，所以，哈希函数一般就是 f(key) = key % B 这种。 
+只是在分区，所以，哈希函数一般就是 f(key) = key % B 这种。注意：这个阶段的每个分区或许都需要持久化到磁盘上。
 - ② rehash(再哈希)：对于上面的每个分区(提示：一个分区可能对应多个磁盘页)，你需要[再用一个其它的哈希函数]，创建一个内存中的
 哈希表，完成结果汇总：[1]如果你找到了对应的分区key，那么你只需要更新汇总字段，这里就是平均成绩；[2]如果没找到，就需要向哈希表
 新添加一个 [key -- 汇总字段] 这样的表项。这里，哈希冲突问题可以采用线性探测再散列的做法。注意：在聚合函数中，你的哈希表是<K, V>键值对的形式。
 - ③ 每次一个分区处理完成后，你需要把这个内存中的哈希表清空，以供下一个分区使用。
 - 提示：在 proj3，你无需处理 ① 分区这个步骤，你应该是只需要处理 rehash 的过程。
+
+**聚合函数在本项目中的实现**
+- 在初始化阶段将某个元组分为 group by keys + agg values 两部分，然后使用 group by keys 作为 HASH KEY，
+将该元组的 agg values 更新到[比如 count 就是 + 1，sum 就是把 value 也加上]对应的 hash key 中即可。
+
+**Join的实现：索引嵌套循环连接(NestedLoopJoin)**
+- 用于处理自然连接和等值连接。
+- 假设是 t 连接 s，那么 s 是右侧表，我们使用的就是右侧表的索引。比如，左侧表中拿出一个元组，ID = 2038，那么你就需要通过B+树索引到右侧表中寻找
+到所有 ID = 2038 的 元组，这种做法的好处在于，你无需对于每个左侧元组，都对右侧进行一次全表扫描。(注意：B+树的叶子结点上面存放的就是 key --> RID 的键值对，所谓 RID，就是你在proj2中的磁盘地址。)
+- 提示：注意：在算子树中，普通嵌套循环有两个子算子结点；而索引嵌套循环仅有左表的一个算子结点。
 
 **项目本身的一些坑**
 - select * from t1 order by v1; 未必会优化为 IndexScan; 可能优化为 SeqScan + Sort....
@@ -124,5 +134,5 @@ Tuple key{child_tuple.KeyFromTuple(child_executor_->GetOutputSchema(),
                        *(index_info->index_->GetKeySchema()), index_info->index_->GetKeyAttrs())};
 index_info->index_->DeleteEntry(key, *rid, exec_ctx_->GetTransaction());
 ```
-
+- ② 可恶的嵌套循环连接 Join。错误体现在，在左连接的时候，如果生成悬浮元组，然后调用 NextAndReset ，随后函数直接返回；由于 NextAndReset 会导致右侧表的游标下移一个单位，所以会忽略右侧表的第一个元组，造成连接错误。
 

@@ -62,6 +62,7 @@ class SimpleAggregationHashTable {
   void CombineAggregateValues(AggregateValue *result, const AggregateValue &input) {
     std::vector<Value>& aggregates{result->aggregates_};
     const std::vector<Value>& input_values{input.aggregates_};
+    if (input_values.size() == 0) { return; }
     for (uint32_t i = 0; i < agg_exprs_.size(); i++) {
       switch (agg_types_[i]) {
         case AggregationType::CountStarAggregate: // COUNT(*)，每次给计数 + 1 即可

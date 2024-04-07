@@ -239,7 +239,7 @@ auto BPLUSTREE_TYPE::SearchTargetLeaf(const KeyType &key, page_id_t page_id, Rea
   return SearchTargetLeaf(key, internal_page->ValueAt(target_idx), page_guard);
 }
 
-/*
+/**
  * Return the only value that associated with input key
  * This method is used for point query
  * @return : true means key exists

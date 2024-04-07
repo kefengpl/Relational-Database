@@ -16,6 +16,9 @@ void AggregationExecutor::Init() {
     RID child_tuple_id{};
     // 处理空表的情况
     if (!child_->Next(&child_tuple, &child_tuple_id)) {
+        if (plan_->group_bys_.size() != 0) { // 有 group by 并且表是空的，那么直接返回
+            return;
+        }
         aht_.InsertCombine(AggregateKey{}, AggregateValue{});
         aht_iterator_ = aht_.Begin();
         return;
@@ -56,7 +59,8 @@ auto AggregationExecutor::Next(Tuple *tuple, RID *rid) -> bool {
     result_values.reserve(keys.size() + values.size()); // 预留空间，即 End() 指针不会移动到空间末尾
     result_values.insert(result_values.end(), keys.begin(), keys.end());
     result_values.insert(result_values.end(), values.begin(), values.end());
-    *tuple = Tuple{values, &GetOutputSchema()};
+    //! \bug 是 result_values，不是 values ！
+    *tuple = Tuple{result_values, &GetOutputSchema()};
     ++aht_iterator_;
     return true;
 }

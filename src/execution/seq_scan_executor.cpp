@@ -10,7 +10,9 @@ SeqScanExecutor::SeqScanExecutor(ExecutorContext *exec_ctx, const SeqScanPlanNod
     AbstractExecutor(exec_ctx), plan_{plan}, table_heap_ptr_{&(exec_ctx_->GetCatalog()->GetTable(plan_->GetTableOid())->table_)},
     table_iterator_{table_heap_ptr_->get()->Begin(exec_ctx_->GetTransaction())} {}
 
-void SeqScanExecutor::Init() {}
+void SeqScanExecutor::Init() {
+    table_iterator_ = table_heap_ptr_->get()->Begin(exec_ctx_->GetTransaction());
+}
 // 这是一个单表顺序扫描的算子，暂时不用考虑表连接(join)的情况
 auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool { 
     // 没有元素了，直接返回 false 

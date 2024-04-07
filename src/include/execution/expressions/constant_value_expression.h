@@ -1,15 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-//                         BusTub
-//
-// constant_value_expression.h
-//
-// Identification: src/include/expression/constant_value_expression.h
-//
-// Copyright (c) 2015-19, Carnegie Mellon University Database Group
-//
-//===----------------------------------------------------------------------===//
-
 #pragma once
 
 #include <memory>
