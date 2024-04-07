@@ -134,7 +134,7 @@ Tuple key{child_tuple.KeyFromTuple(child_executor_->GetOutputSchema(),
                        *(index_info->index_->GetKeySchema()), index_info->index_->GetKeyAttrs())};
 index_info->index_->DeleteEntry(key, *rid, exec_ctx_->GetTransaction());
 ```
-- **③ 可恶的嵌套循环连接 Join。**错误体现在，在左连接的时候，如果生成悬浮元组，然后调用 NextAndReset ，随后函数直接返回；由于 NextAndReset 会导致右侧表的游标下移一个单位，所以会忽略右侧表的第一个元组，造成连接错误。
+- **③ 可恶的嵌套循环连接 Join。** 错误体现在，在左连接的时候，如果生成悬浮元组，然后调用 NextAndReset ，随后函数直接返回；由于 NextAndReset 会导致右侧表的游标下移一个单位，所以会忽略右侧表的第一个元组，造成连接错误。
 - **④ 索引嵌套循环连接中的错误：**
 ```C++
 // 对于某个不能匹配的左表元组，如果是内连接，那么需要向下迭代
@@ -145,7 +145,7 @@ if (!NextAndReset()) {
             // 继续向下执行的话，由于 result(一个 vector) 是空，你取了 result[0] 这会直接给你 SEGMENTATION DEFAULT。
 }
 ```
-- **⑤ 构造与初始化：**聚合函数聚合时的那个哈希表需要在 Init() 中初始化，否则你多次调用 Init()，聚合值会进行累计。
+- **⑤ 构造与初始化：** 聚合函数聚合时的那个哈希表需要在 Init() 中初始化，否则你多次调用 Init()，聚合值会进行累计。
 类似的问题还存在于 IndexScan 的 sorted_rids_ 数据结构，每次初始化必须清空该结构。否则元素会在里面富集。
 下面的代码展示了正确的聚合函数初始化代码，并标记了 bug 所在之处。以 count 为例，如果没有 clear 那一行，将会
 使得该算子每次执行 Init 的结果累计，第一次是 2， 第二次是 4，第三次是 6...
