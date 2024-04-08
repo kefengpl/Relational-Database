@@ -143,7 +143,7 @@ Projection { exprs=[#0.0, #0.1] }
 
 **Bug记录区**
 
--**① 非常好 BUG，爱来自 Proj2.** Proj2 的 root page 需要你自己分配，header page 是系统赠送的，它维护了 B+ TREE 的元信息。每次变换 root_page_id_ 的时候，你都需要执行函数 UpdateRootPageId(0) 以更新这个 HeaderPage 里面的 root_page_id_. 在你原来的实现中，直接将 header_page 本身当成了 root page，所有 tree 的 root_page_id 都是 HEADER_PAGE_ID(0)。这可能在 proj2 中不会出现问题， 但是你用相同buffer_pool_ 构建第二个树的索引时，page_id 依然从0开始，则原来第一颗树的 root page 会被覆盖，于是你获得的索引就是乱序的，甚至都无法得知访问的是哪个B+树。我都不知道proj2测试为什么能过....
+- **① 非常好 BUG，爱来自 Proj2.** Proj2 的 root page 需要你自己分配，header page 是系统赠送的，它维护了 B+ TREE 的元信息。每次变换 root_page_id_ 的时候，你都需要执行函数 UpdateRootPageId(0) 以更新这个 HeaderPage 里面的 root_page_id_. 在你原来的实现中，直接将 header_page 本身当成了 root page，所有 tree 的 root_page_id 都是 HEADER_PAGE_ID(0)。这可能在 proj2 中不会出现问题， 但是你用相同buffer_pool_ 构建第二个树的索引时，page_id 依然从0开始，则原来第一颗树的 root page 会被覆盖，于是你获得的索引就是乱序的，甚至都无法得知访问的是哪个B+树。我都不知道proj2测试为什么能过....
 - **② 神奇的错误：**
 ```C++
 // 错误的写法
