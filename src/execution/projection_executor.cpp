@@ -11,7 +11,7 @@ void ProjectionExecutor::Init() {
   // Initialize the child executor
   child_executor_->Init();
 }
-// 从 child 中获取一个结果？
+
 auto ProjectionExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   Tuple child_tuple{};
 

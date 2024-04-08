@@ -117,11 +117,32 @@ student_name 和 score 这两列。然后，使用哈希函数，将表的记录
 到所有 ID = 2038 的 元组，这种做法的好处在于，你无需对于每个左侧元组，都对右侧进行一次全表扫描。(注意：B+树的叶子结点上面存放的就是 key --> RID 的键值对，所谓 RID，就是你在proj2中的磁盘地址。)
 - 提示：注意：在算子树中，普通嵌套循环有两个子算子结点；而索引嵌套循环仅有左表的一个算子结点。
 
-**项目本身的一些坑**
-- select * from t1 order by v1; 未必会优化为 IndexScan; 可能优化为 SeqScan + Sort....
-- 当然,  SeqScan + Sort 的实现方式就非常简单粗暴了, 把所有元素直接读入堆内存, 然后 std::sort 即可
+**经典的优化问题：sort + limit**
+- 这里的思路是 HEAP SORT，具体的，你不需要使用堆排序。你只需要维护一个固定大小的优先队列即可。扫描一遍全表，维护一个优先队列(最大的元素在队尾)，即构建一个小顶堆，堆顶就是直到当前的第K大的元素，如果下一个元素比堆顶的元素更大，那么就将堆顶元素出队，新元素入队。
+- 注意：这里你需要理解优化器是怎么进行优化的，通过 gdb 调试即可得知。你更应该参照 order_by_index_scan.cpp 来完成优化器。优化器的基本思路就是
+如果 Limit --> Sort(child) ...，你需要将 Limit 和 Sort 合并为 TopN，如下图所示。
+```
+=== PLANNER ===
+Limit { limit=10 } | (__mock_table_1.colA:INTEGER, __mock_table_1.colB:INTEGER)
+  Sort { order_bys=[(Default, #0.0)] } | (__mock_table_1.colA:INTEGER, __mock_table_1.colB:INTEGER)
+    Projection { exprs=[#0.0, #0.1] } | (__mock_table_1.colA:INTEGER, __mock_table_1.colB:INTEGER)
+      MockScan { table=__mock_table_1 } | (__mock_table_1.colA:INTEGER, __mock_table_1.colB:INTEGER)
+=== OPTIMIZER ===
+TopN { n=10, order_bys=[(Default, #0.0)]} | (__mock_table_1.colA:INTEGER, __mock_table_1.colB:INTEGER)
+  MockScan { table=__mock_table_1 } | (__mock_table_1.colA:INTEGER, __mock_table_1.colB:INTEGER)
+
+提示：plan 的 children 是什么？答：把plan看作一颗树，children就是抛去根结点后剩下的子树，可能是多个 child，也可能是一个 child
+比如：我有一个完美的计划 plan：
+Sort { order_bys=[(Default, #0.0)] } | (t1.id:INTEGER, t1.score:INTEGER)
+  Projection { exprs=[#0.0, #0.1] } 
+    SeqScan { table=t1 }"
+如果取 plan->GetChildren()，那么得到的子 plan 就是下方的东西。
+Projection { exprs=[#0.0, #0.1] } 
+  SeqScan { table=t1 }"
+```
 
 **Bug记录区**
+
 -**① 非常好 BUG，爱来自 Proj2.** Proj2 的 root page 需要你自己分配，header page 是系统赠送的，它维护了 B+ TREE 的元信息。每次变换 root_page_id_ 的时候，你都需要执行函数 UpdateRootPageId(0) 以更新这个 HeaderPage 里面的 root_page_id_. 在你原来的实现中，直接将 header_page 本身当成了 root page，所有 tree 的 root_page_id 都是 HEADER_PAGE_ID(0)。这可能在 proj2 中不会出现问题， 但是你用相同buffer_pool_ 构建第二个树的索引时，page_id 依然从0开始，则原来第一颗树的 root page 会被覆盖，于是你获得的索引就是乱序的，甚至都无法得知访问的是哪个B+树。我都不知道proj2测试为什么能过....
 - **② 神奇的错误：**
 ```C++
@@ -155,5 +176,6 @@ void AggregationExecutor::Init() {
     aht_.Clear(); //! \bug 每次初始化都需要清空原有汇总表，防止汇总结果每调用一次 Init 就进行一次累加
     Tuple child_tuple{};
     RID child_tuple_id{};
+    // ... 下方的代码省略
+}
 ```
-

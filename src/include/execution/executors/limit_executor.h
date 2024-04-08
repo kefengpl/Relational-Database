@@ -1,15 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-//                         BusTub
-//
-// limit_executor.h
-//
-// Identification: src/include/execution/executors/limit_executor.h
-//
-// Copyright (c) 2015-2021, Carnegie Mellon University Database Group
-//
-//===----------------------------------------------------------------------===//
-
 #pragma once
 
 #include <memory>
@@ -53,5 +41,7 @@ class LimitExecutor : public AbstractExecutor {
   const LimitPlanNode *plan_;
   /** The child executor from which tuples are obtained */
   std::unique_ptr<AbstractExecutor> child_executor_;
+  /** limit 限制了元组个数，这个成员反映了剩余的元组个数，最低是 0 */
+  size_t remain_records_;
 };
 }  // namespace bustub
