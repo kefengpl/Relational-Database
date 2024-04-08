@@ -1,8 +1,8 @@
 #pragma once
 
 #include <memory>
-#include <vector>
 #include <queue>
+#include <vector>
 
 #include "execution/executor_context.h"
 #include "execution/executors/abstract_executor.h"
@@ -26,7 +26,7 @@ class TopNExecutor : public AbstractExecutor {
 
   /**
    * 委托构造函数，其目的是为了正确初始化优先队列
-  */
+   */
   TopNExecutor(ExecutorContext *exec_ctx, const TopNPlanNode *plan);
 
   /** Initialize the topn */
@@ -45,19 +45,19 @@ class TopNExecutor : public AbstractExecutor {
 
   /**
    * 调整，以 idx 为根结点，对堆进行调整。[注意是大顶堆]
-  */
-  void heapify(size_t idx);
+   */
+  void Heapify(size_t idx);
   /**
    * 我们需要构建大顶堆，以便于这个大顶能够及时被替换。(较小的元组才是先输出的元组)
-  */
+   */
   void RefreshHeap();
   /**
    * 经典的堆方法
-  */
-  Tuple& top();
-  void pop(); 
-  void push(Tuple& tuple);
-  auto Comparator(const Tuple& tuple1, const Tuple& tuple2) -> bool;
+   */
+  auto Top() -> Tuple &;
+  void Pop();
+  void Push(Tuple &tuple);
+  auto Comparator(const Tuple &tuple1, const Tuple &tuple2) -> bool;
 
  private:
   /** The topn plan node to be executed */
@@ -67,7 +67,8 @@ class TopNExecutor : public AbstractExecutor {
   std::vector<AbstractExpressionRef> exprs_;
   // std::unique_ptr<TupleHeap> topn_elems_;
   /** 自定义比较器，需要运行时动态生成 lambda 表达式，直观理解：如果返回 true，则第一个 tuple 是 "较小"的 */
-  //decltype([&exprs, &order_by_types, this](const Tuple& tuple1, const Tuple& tuple2) -> bool{return true;}) comparator_;
+  // decltype([&exprs, &order_by_types, this](const Tuple& tuple1, const Tuple& tuple2) -> bool{return true;})
+  // comparator_;
   /** 专门为优先队列准备的比较器，方向与 comparator_ 相反 */
   // std::function<bool(const Tuple&, const Tuple&)> rev_comparator_;
   std::vector<Tuple> topn_elems_;

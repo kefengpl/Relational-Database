@@ -23,7 +23,7 @@ class SortExecutor : public AbstractExecutor {
    */
   SortExecutor(ExecutorContext *exec_ctx, const SortPlanNode *plan, std::unique_ptr<AbstractExecutor> &&child_executor);
 
-  /** 
+  /**
    * Initialize the sort
    * Init 中你先把所有元组都 Fetch 出来到一个 vector, 然后抽取排序规则, 对这个 vector 进行 sort
    */

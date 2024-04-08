@@ -26,7 +26,7 @@ class IndexIterator {
 
   /**
    * 访问 B+ 树某个 leaf page 上的一个 <key, value> pair
-  */
+   */
   auto operator*() -> const MappingType &;
 
   /**

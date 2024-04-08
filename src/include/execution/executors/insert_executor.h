@@ -46,10 +46,10 @@ class InsertExecutor : public AbstractExecutor {
   /** The insert plan node to be executed*/
   const InsertPlanNode *plan_;
   std::unique_ptr<AbstractExecutor> child_executor_;
-  TableInfo* table_info_; // 单表插入。该变量储存了 table 的元信息
-  TableHeap* table_heap_; // 由于要插入元素，所以需要这个东西
-  Value insert_num_; // 成功插入元组的个数，这个共用即可
-  bool reentrance_; // 重入标记，用于区分是由于insert成功的元素个数是0，或者是由于重入需要直接返回
+  TableInfo *table_info_;  // 单表插入。该变量储存了 table 的元信息
+  TableHeap *table_heap_;  // 由于要插入元素，所以需要这个东西
+  Value insert_num_;       // 成功插入元组的个数，这个共用即可
+  bool reentrance_;  // 重入标记，用于区分是由于insert成功的元素个数是0，或者是由于重入需要直接返回
 };
 
 }  // namespace bustub

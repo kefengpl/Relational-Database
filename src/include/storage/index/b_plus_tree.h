@@ -328,6 +328,6 @@ class BPlusTree {
   int internal_max_size_;
   std::recursive_mutex empty_latch_;  // 用于初始化
   std::vector<InternalPair> splitted_;
-  std::recursive_mutex latch_; 
+  std::recursive_mutex latch_;
 };
 }  // namespace bustub

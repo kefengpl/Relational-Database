@@ -423,7 +423,7 @@ auto BPLUSTREE_TYPE::NewRootInternalPage(WritePageGuard &page_guard, page_id_t p
   }
   new_root_page->Init(page_id, INVALID_PAGE_ID, internal_max_size_);  // 初始化新的 Page
   root_page_id_ = page_id;
-  UpdateRootPageId(0); // 我是傻逼
+  UpdateRootPageId(0);  // 我是傻逼
   return new_root_page;
 }
 
@@ -479,7 +479,7 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, page_id_
       // std::lock_guard<std::recursive_mutex> guard{latch_};
       page_id_t new_root_id{};  // 产生新的 ROOT 页
       WritePageGuard new_root_guard = buffer_pool_manager_->NewWritePageGuarded(&new_root_id);
-      UpdateRootPageId(0); // 我是傻逼
+      UpdateRootPageId(0);  // 我是傻逼
       InternalPage *new_root_page{NewRootInternalPage(new_root_guard, new_root_id)};
       if (new_root_page == nullptr) {
         return InsertStatus::FAILED_INSERT;
@@ -536,7 +536,7 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, page_id_
     // std::lock_guard<std::recursive_mutex> guard{latch_};
     page_id_t new_root_id{};  // 产生新的 ROOT 页
     WritePageGuard new_root_guard = buffer_pool_manager_->NewWritePageGuarded(&new_root_id);
-    UpdateRootPageId(0); // 我是傻逼
+    UpdateRootPageId(0);  // 我是傻逼
     InternalPage *new_root_page{NewRootInternalPage(new_root_guard, new_root_id)};
     InsertInternalPage(internal_page->GetPageId(), splitted_key, new_internal_page->GetPageId(), new_root_page);
     internal_page->SetParentPageId(root_page_id_);
@@ -565,7 +565,7 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
       std::lock_guard<std::recursive_mutex> latch_guard(latch_);
       if (root_page_id_ == INVALID_PAGE_ID) {  // 两阶段检查保证初始化的线程安全
         WritePageGuard root_guard{InitializeRoot()};  // 初始化根结点为叶子结点，并将 page_id 赋值给 root_page_id_
-        UpdateRootPageId(1); // 我是傻逼
+        UpdateRootPageId(1);                          // 我是傻逼
         auto *page = root_guard.AsMut<LeafPage>();
         page->Init(root_page_id_, INVALID_PAGE_ID, leaf_max_size_);
       }
@@ -877,7 +877,7 @@ auto BPLUSTREE_TYPE::Remove(const KeyType &key, page_id_t page_id, WritePageGuar
       if (leaf_page->IsRootPage() && leaf_page->GetKeyNum() == 0) {
         // std::lock_guard<std::recursive_mutex> latch_guard(latch_);  // 多个线程执行写入操作必须加锁
         root_page_id_ = INVALID_PAGE_ID;
-        UpdateRootPageId(0); // 我是傻逼
+        UpdateRootPageId(0);  // 我是傻逼
       }
       return if_success ? RemoveStatus::SUCCESS_REMOVE : RemoveStatus::REMOVE_FAILED;
     }
@@ -953,7 +953,7 @@ auto BPLUSTREE_TYPE::Remove(const KeyType &key, page_id_t page_id, WritePageGuar
       //! \note 对于更新 ROOT 的情况，或许需要加锁保护
       // std::lock_guard<std::recursive_mutex> guard{latch_};
       root_page_id_ = internal_page->ValueAt(0);  // 此时新的根结点诞生
-      UpdateRootPageId(0); // 我是傻逼
+      UpdateRootPageId(0);                        // 我是傻逼
       // 新的根结点的 PARENT_ID 应该变为 0
       WritePageGuard new_root_guard{buffer_pool_manager_->FetchPageWrite(root_page_id_)};
       BPlusTreePage *new_root_page{PageFromGuard<BPlusTreePage>(new_root_guard)};

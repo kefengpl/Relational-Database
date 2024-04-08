@@ -60,12 +60,14 @@ class SimpleAggregationHashTable {
    * group by keys 对应的 values 字段。
    */
   void CombineAggregateValues(AggregateValue *result, const AggregateValue &input) {
-    std::vector<Value>& aggregates{result->aggregates_};
-    const std::vector<Value>& input_values{input.aggregates_};
-    if (input_values.size() == 0) { return; }
+    std::vector<Value> &aggregates{result->aggregates_};
+    const std::vector<Value> &input_values{input.aggregates_};
+    if (input_values.empty()) {
+      return;
+    }
     for (uint32_t i = 0; i < agg_exprs_.size(); i++) {
       switch (agg_types_[i]) {
-        case AggregationType::CountStarAggregate: // COUNT(*)，每次给计数 + 1 即可
+        case AggregationType::CountStarAggregate:  // COUNT(*)，每次给计数 + 1 即可
           aggregates[i] = aggregates[i].Add(Value(TypeId::INTEGER, 1));
           break;
         case AggregationType::CountAggregate:
@@ -93,7 +95,7 @@ class SimpleAggregationHashTable {
             } else {
               aggregates[i] = aggregates[i].Min(input_values[i]);
             }
-          }          
+          }
           break;
         case AggregationType::MaxAggregate:
           if (!input_values[i].IsNull()) {
@@ -102,7 +104,7 @@ class SimpleAggregationHashTable {
             } else {
               aggregates[i] = aggregates[i].Max(input_values[i]);
             }
-          }    
+          }
           break;
       }
     }
@@ -114,10 +116,10 @@ class SimpleAggregationHashTable {
    * @param agg_val the value to be inserted
    */
   void InsertCombine(const AggregateKey &agg_key, const AggregateValue &agg_val) {
-    if (ht_.count(agg_key) == 0) { // 如果 key 不存在，就插入这个元组
+    if (ht_.count(agg_key) == 0) {  // 如果 key 不存在，就插入这个元组
       ht_.insert({agg_key, GenerateInitialAggregateValue()});
     }
-    CombineAggregateValues(&ht_[agg_key], agg_val); // 否则就更新元组
+    CombineAggregateValues(&ht_[agg_key], agg_val);  // 否则就更新元组
   }
 
   /**
@@ -184,10 +186,10 @@ class AggregationExecutor : public AbstractExecutor {
   AggregationExecutor(ExecutorContext *exec_ctx, const AggregationPlanNode *plan,
                       std::unique_ptr<AbstractExecutor> &&child);
 
-  /** 
+  /**
    * Initialize the aggregation
    * @note 提示：聚合函数在有 group by 的时候最多包含两列，而没有 group by 的时候只包含你要汇总的那一列
-   * @note 个人认为，聚合函数的哈希表应该在这个函数被构建出来，也就是说：汇总的数据表应该在这里生成 
+   * @note 个人认为，聚合函数的哈希表应该在这个函数被构建出来，也就是说：汇总的数据表应该在这里生成
    */
   void Init() override;
 

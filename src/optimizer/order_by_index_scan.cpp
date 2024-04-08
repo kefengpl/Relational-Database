@@ -33,18 +33,21 @@ auto Optimizer::OptimizeOrderByAsIndexScan(const AbstractPlanNodeRef &plan) -> A
     const auto &order_bys = sort_plan.GetOrderBy();
 
     // Has exactly one order by column
-    if (order_bys.size() != 1) { // 即：仅支持单列索引优化，如果同时 sort 多列，那么无法优化为 IndexScan
+    if (order_bys.size() != 1) {  // 即：仅支持单列索引优化，如果同时 sort 多列，那么无法优化为 IndexScan
       return optimized_plan;
     }
 
     // Order type is asc or default
-    const auto &[order_type, expr] = order_bys[0]; // 一个很新奇的用法，大概就是从结构体解包。auto 是值传递；auto& 传递引用
-    if (!(order_type == OrderByType::ASC || order_type == OrderByType::DEFAULT)) { // 如果是 DESC，降序，则无法转 IndexScan
+    const auto &[order_type, expr] =
+        order_bys[0];  // 一个很新奇的用法，大概就是从结构体解包。auto 是值传递；auto& 传递引用
+    if (!(order_type == OrderByType::ASC ||
+          order_type == OrderByType::DEFAULT)) {  // 如果是 DESC，降序，则无法转 IndexScan
       return optimized_plan;
     }
 
     // Order expression is a column value expression
-    const auto *column_value_expr = dynamic_cast<ColumnValueExpression *>(expr.get()); // 检查 #0.1 这样的列表达式是否有效
+    const auto *column_value_expr =
+        dynamic_cast<ColumnValueExpression *>(expr.get());  // 检查 #0.1 这样的列表达式是否有效
     if (column_value_expr == nullptr) {
       return optimized_plan;
     }
@@ -58,7 +61,7 @@ auto Optimizer::OptimizeOrderByAsIndexScan(const AbstractPlanNodeRef &plan) -> A
     if (child_plan->GetType() == PlanType::SeqScan) {
       const auto &seq_scan = dynamic_cast<const SeqScanPlanNode &>(*child_plan);
       const auto *table_info = catalog_.GetTable(seq_scan.GetTableOid());
-      const auto indices = catalog_.GetTableIndexes(table_info->name_); 
+      const auto indices = catalog_.GetTableIndexes(table_info->name_);
 
       for (const auto *index : indices) {
         const auto &columns = index->key_schema_.GetColumns();

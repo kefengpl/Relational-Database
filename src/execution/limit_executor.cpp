@@ -6,20 +6,17 @@ LimitExecutor::LimitExecutor(ExecutorContext *exec_ctx, const LimitPlanNode *pla
                              std::unique_ptr<AbstractExecutor> &&child_executor)
     : AbstractExecutor{exec_ctx}, plan_{plan}, child_executor_{std::move(child_executor)} {}
 
-void LimitExecutor::Init() { 
-    child_executor_->Init();
-    remain_records_ = plan_->GetLimit();
+void LimitExecutor::Init() {
+  child_executor_->Init();
+  remain_records_ = plan_->GetLimit();
 }
 
-auto LimitExecutor::Next(Tuple *tuple, RID *rid) -> bool { 
-    if (remain_records_ == 0) {
-        return false;
-    }
-    --remain_records_;
-    if (!child_executor_->Next(tuple, rid)) {
-        return false;
-    }
-    return true;
+auto LimitExecutor::Next(Tuple *tuple, RID *rid) -> bool {
+  if (remain_records_ == 0 || !child_executor_->Next(tuple, rid)) {
+    return false;
+  }
+  --remain_records_;
+  return true;
 }
 
 }  // namespace bustub

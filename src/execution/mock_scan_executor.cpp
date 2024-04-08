@@ -384,7 +384,7 @@ void MockScanExecutor::Init() {
   cursor_ = 0;
 }
 //! \note 全表扫描执行器
-auto MockScanExecutor::Next(Tuple *tuple, RID *rid) -> bool { 
+auto MockScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   if (cursor_ == size_) {
     // Scan complete
     return EXECUTOR_EXHAUSTED;

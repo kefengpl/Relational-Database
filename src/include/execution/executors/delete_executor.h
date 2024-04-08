@@ -50,8 +50,8 @@ class DeleteExecutor : public AbstractExecutor {
   const DeletePlanNode *plan_;
   /** The child executor from which RIDs for deleted tuples are pulled */
   std::unique_ptr<AbstractExecutor> child_executor_;
-  bool reentrant_; // 重入标记，检查是否重入
-  TableInfo* table_info_; // 单表删除。该变量储存了 table 的元信息
-  TableHeap* table_heap_; // 由于要删除元素，所以需要这个东西
+  bool reentrant_;         // 重入标记，检查是否重入
+  TableInfo *table_info_;  // 单表删除。该变量储存了 table 的元信息
+  TableHeap *table_heap_;  // 由于要删除元素，所以需要这个东西
 };
 }  // namespace bustub

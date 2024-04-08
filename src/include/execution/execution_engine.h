@@ -50,7 +50,7 @@ class ExecutionEngine {
 
     try {
       executor->Init();
-      PollExecutor(executor.get(), plan, result_set); // 核心查询函数
+      PollExecutor(executor.get(), plan, result_set);  // 核心查询函数
     } catch (const ExecutionException &ex) {
 #ifndef NDEBUG
       LOG_ERROR("Error Encountered in Executor Execution: %s", ex.what());
@@ -74,8 +74,10 @@ class ExecutionEngine {
   static void PollExecutor(AbstractExecutor *executor, const AbstractPlanNodeRef &plan,
                            std::vector<Tuple> *result_set) {
     RID rid{};
-    Tuple tuple{}; // 这里的循环是从整体上而言直接从 select 中获取结果的，比如从 select 中获取结果
-    while (executor->Next(&tuple, &rid)) { // for tuple in next()，会从具体的执行中获取数据。这里的 executor 应该已经是最外层的 executor 了
+    Tuple tuple{};  // 这里的循环是从整体上而言直接从 select 中获取结果的，比如从 select 中获取结果
+    while (executor->Next(
+        &tuple,
+        &rid)) {  // for tuple in next()，会从具体的执行中获取数据。这里的 executor 应该已经是最外层的 executor 了
       if (result_set != nullptr) {
         result_set->push_back(tuple);
       }

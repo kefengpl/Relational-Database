@@ -33,12 +33,13 @@ class TableIterator {
   inline auto operator!=(const TableIterator &itr) const -> bool { return !(*this == itr); }
 
   auto operator*() -> const Tuple &;
-  // 使用方法：重载的意义在于，-> 返回了一个对象，所以你调用 iterato r-> 操作符时，就像调用 tuple* (返回对象)的各种方法一样。
+  // 使用方法：重载的意义在于，-> 返回了一个对象，所以你调用 iterato r-> 操作符时，就像调用 tuple*
+  // (返回对象)的各种方法一样。
   auto operator->() -> Tuple *;
 
-  auto operator++() -> TableIterator &; // 前置： ++i
- 
-  auto operator++(int) -> TableIterator; // 后置： i++
+  auto operator++() -> TableIterator &;  // 前置： ++i
+
+  auto operator++(int) -> TableIterator;  // 后置： i++
 
   auto operator=(const TableIterator &other) -> TableIterator & {
     table_heap_ = other.table_heap_;
