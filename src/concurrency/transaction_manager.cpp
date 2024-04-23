@@ -1,15 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-//                         BusTub
-//
-// transaction_manager.cpp
-//
-// Identification: src/concurrency/transaction_manager.cpp
-//
-// Copyright (c) 2015-2019, Carnegie Mellon University Database Group
-//
-//===----------------------------------------------------------------------===//
-
 #include "concurrency/transaction_manager.h"
 
 #include <mutex>  // NOLINT
@@ -47,6 +35,7 @@ void TransactionManager::Commit(Transaction *txn) {
   txn->SetState(TransactionState::COMMITTED);
 
   // Perform all deletes before we commit.
+  //! \note 只有在提交的时候才会执行删除元组的操作？
   auto write_set = txn->GetWriteSet();
   while (!write_set->empty()) {
     auto &item = write_set->back();
@@ -68,6 +57,7 @@ void TransactionManager::Commit(Transaction *txn) {
 void TransactionManager::Abort(Transaction *txn) {
   txn->SetState(TransactionState::ABORTED);
   // Rollback before releasing the lock.
+  //! \note 这里进一步验证了 table_write_set 记录了所有对表格的增删改。 
   auto table_write_set = txn->GetWriteSet();
   while (!table_write_set->empty()) {
     auto &item = table_write_set->back();

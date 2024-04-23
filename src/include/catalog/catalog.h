@@ -88,6 +88,7 @@ struct IndexInfo {
  * @note 直观理解：它包含了一个表在内存中的所有元信息，包括其索引的信息
  * @note 大概意思就是 “一览表”。比如它包含了 table_ [oid-->table的元数据[关系、表名、OID等字段]]，
  * table_name_ [表名 --> OID]。以及这个 TABLE 的索引的元信息，和 index_name_ [索引名 --> 索引 ID]
+ * @note 它应该是存放了所有表的元信息及在每个表上的索引信息。
  */
 class Catalog {
  public:

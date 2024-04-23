@@ -65,8 +65,8 @@ void TableLockTest1() {
   std::vector<table_oid_t> oids;
   std::vector<Transaction *> txns;
 
-  /** 10 tables */
-  int num_oids = 10;
+  /** 10 tables，这里生成了十个事务，十张表 */
+  int num_oids = 10; // 原始值 10
   for (int i = 0; i < num_oids; i++) {
     table_oid_t oid{static_cast<uint32_t>(i)};
     oids.push_back(oid);
@@ -74,7 +74,9 @@ void TableLockTest1() {
     EXPECT_EQ(i, txns[i]->GetTransactionId());
   }
 
-  /** Each transaction takes an S lock on every table and then unlocks */
+  /** Each transaction takes an S lock on every table and then unlocks,
+   *  这里我们让一个线程执行一个事务。所以事务本身不会存在竞争条件。
+   */
   auto task = [&](int txn_id) {
     bool res;
     for (const table_oid_t &oid : oids) {
@@ -99,6 +101,7 @@ void TableLockTest1() {
 
   for (int i = 0; i < num_oids; i++) {
     threads.emplace_back(std::thread{task, i});
+    // task(i);
   }
 
   for (int i = 0; i < num_oids; i++) {
@@ -109,7 +112,7 @@ void TableLockTest1() {
     delete txns[i];
   }
 }
-TEST(LockManagerTest, DISABLED_TableLockTest1) { TableLockTest1(); }  // NOLINT
+TEST(LockManagerTest, TableLockTest1) { TableLockTest1(); }  // NOLINT
 
 /** Upgrading single transaction from S -> X */
 void TableLockUpgradeTest1() {
@@ -134,7 +137,135 @@ void TableLockUpgradeTest1() {
 
   delete txn1;
 }
-TEST(LockManagerTest, DISABLED_TableLockUpgradeTest1) { TableLockUpgradeTest1(); }  // NOLINT
+TEST(LockManagerTest, TableLockUpgradeTest1) { TableLockUpgradeTest1(); }  // NOLINT
+
+
+
+TEST(LockManagerTest, CompatibilityTest) {
+  LockManager lock_mgr{};
+  TransactionManager txn_mgr{&lock_mgr};
+
+  std::vector<table_oid_t> oids;
+  std::vector<Transaction *> txns;
+
+  /** 10 tables */
+  int num_oids = 10;
+  for (int i = 0; i < num_oids; i++) {
+    table_oid_t oid{static_cast<uint32_t>(i)};
+    oids.push_back(oid);
+    txns.push_back(txn_mgr.Begin());
+    EXPECT_EQ(i, txns[i]->GetTransactionId());
+  }
+
+  auto task_exclusive = [&](int txn_id) {
+    bool res;
+    for (const table_oid_t &oid : oids) {
+      res = lock_mgr.LockTable(txns[txn_id], LockManager::LockMode::EXCLUSIVE, oid);
+      EXPECT_TRUE(res);
+      CheckGrowing(txns[txn_id]);
+    }
+    for (const table_oid_t &oid : oids) {
+      res = lock_mgr.UnlockTable(txns[txn_id], oid);
+      EXPECT_TRUE(res);
+      CheckShrinking(txns[txn_id]);
+    }
+    txn_mgr.Commit(txns[txn_id]);
+    CheckCommitted(txns[txn_id]);
+
+    /** All locks should be dropped */
+    CheckTableLockSizes(txns[txn_id], 0, 0, 0, 0, 0);
+  };
+
+  /** Each transaction takes an S lock on every table and then unlocks */
+  auto task_shared = [&](int txn_id) {
+    bool res;
+    for (const table_oid_t &oid : oids) {
+      res = lock_mgr.LockTable(txns[txn_id], LockManager::LockMode::SHARED, oid);
+      EXPECT_TRUE(res);
+      CheckGrowing(txns[txn_id]);
+    }
+    for (const table_oid_t &oid : oids) {
+      res = lock_mgr.UnlockTable(txns[txn_id], oid);
+      EXPECT_TRUE(res);
+      CheckShrinking(txns[txn_id]);
+    }
+    txn_mgr.Commit(txns[txn_id]);
+    CheckCommitted(txns[txn_id]);
+
+    /** All locks should be dropped */
+    CheckTableLockSizes(txns[txn_id], 0, 0, 0, 0, 0);
+  };
+
+  std::vector<std::thread> threads;
+  threads.reserve(num_oids);
+
+  for (int i = 0; i < num_oids; i++) {
+    if (i % 3 == 0) {
+      threads.emplace_back(std::thread{task_exclusive, i});
+    } else {
+      threads.emplace_back(std::thread{task_shared, i});
+    }
+  }
+
+  for (int i = 0; i < num_oids; i++) {
+    threads[i].join();
+  }
+
+  for (int i = 0; i < num_oids; i++) {
+    delete txns[i];
+  }
+}
+
+TEST(LockManagerTest, AbortTest1) {
+  LockManager lock_mgr{};
+  TransactionManager txn_mgr{&lock_mgr};
+  table_oid_t oid = 0;
+
+  auto *txn0 = txn_mgr.Begin();
+  auto *txn1 = txn_mgr.Begin();
+  auto *txn2 = txn_mgr.Begin();
+
+  std::thread t1([&]() {
+    bool res;
+    res = lock_mgr.LockTable(txn0, LockManager::LockMode::EXCLUSIVE, oid);
+    EXPECT_TRUE(res);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    lock_mgr.UnlockTable(txn0, oid);
+    txn_mgr.Commit(txn0);
+    EXPECT_EQ(TransactionState::COMMITTED, txn0->GetState());
+  });
+
+  std::thread t2([&]() {
+    bool res;
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    res = lock_mgr.LockTable(txn1, LockManager::LockMode::EXCLUSIVE, oid);
+    EXPECT_FALSE(res);
+
+    EXPECT_EQ(TransactionState::ABORTED, txn1->GetState());
+    txn_mgr.Abort(txn1);
+  });
+
+  std::thread t3([&]() {
+    bool res;
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    res = lock_mgr.LockTable(txn2, LockManager::LockMode::EXCLUSIVE, oid);
+    EXPECT_TRUE(res);
+    lock_mgr.UnlockTable(txn2, oid);
+    txn_mgr.Commit(txn2);
+    EXPECT_EQ(TransactionState::COMMITTED, txn2->GetState());
+  });
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(70));
+  txn1->SetState(TransactionState::ABORTED);
+
+  t1.join();
+  t2.join();
+  t3.join();
+  delete txn0;
+  delete txn1;
+  delete txn2;
+}
+
 
 void RowLockTest1() {
   LockManager lock_mgr{};
@@ -143,7 +274,7 @@ void RowLockTest1() {
   table_oid_t oid = 0;
   RID rid{0, 0};
 
-  int num_txns = 3;
+  int num_txns = 3; 
   std::vector<Transaction *> txns;
   for (int i = 0; i < num_txns; i++) {
     txns.push_back(txn_mgr.Begin());

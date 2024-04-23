@@ -49,6 +49,7 @@ using index_oid_t = uint32_t;
 
 /**
  * WriteRecord tracks information related to a write.
+ * @note 对于table写入操作的记录，它记录了表格元组级别的所有增删改。
  */
 class TableWriteRecord {
  public:
@@ -65,6 +66,7 @@ class TableWriteRecord {
 
 /**
  * WriteRecord tracks information related to a write.
+ * @note 对于index写入操作的记录
  */
 class IndexWriteRecord {
  public:
@@ -143,6 +145,7 @@ class TransactionAbortException : public std::exception {
 
 /**
  * Transaction tracks information related to a transaction.
+ * @note 在这里的设计中，似乎是多个线程并发执行多个事务。再提示：多个线程可能同时操作一个事务的各种东西，所以事务本身也要考虑线程安全。
  */
 class Transaction {
  public:
@@ -180,13 +183,19 @@ class Transaction {
   /** @return the isolation level of this transaction */
   inline auto GetIsolationLevel() const -> IsolationLevel { return isolation_level_; }
 
-  /** @return the list of table write records of this transaction */
+  /** 
+   * @return the list of table write records of this transaction
+   * @note 显然，一个事务可以记录多个table写入[写入包括增删改]，数据结构是双端队列，双端队列的目的就是方便回滚。
+   */
   inline auto GetWriteSet() -> std::shared_ptr<std::deque<TableWriteRecord>> { return table_write_set_; }
 
-  /** @return the list of index write records of this transaction */
+  /** 
+   * @return the list of index write records of this transaction
+   * @note 记录了index 的写入，数据结构是双端队列
+   */
   inline auto GetIndexWriteSet() -> std::shared_ptr<std::deque<IndexWriteRecord>> { return index_write_set_; }
 
-  /** @return the page set */
+  /** @return the page set，某个4KB的页的集合，数据结构是双端队列 */
   inline auto GetPageSet() -> std::shared_ptr<std::deque<Page *>> { return page_set_; }
 
   /**
@@ -208,10 +217,11 @@ class Transaction {
   /**
    * Adds a page into the page set.
    * @param page page to be added
+   * @note 该功能似乎专用于索引
    */
   inline void AddIntoPageSet(Page *page) { page_set_->push_back(page); }
 
-  /** @return the deleted page set */
+  /** @return the deleted page set，该功能似乎也专用于索引 */
   inline auto GetDeletedPageSet() -> std::shared_ptr<std::unordered_set<page_id_t>> { return deleted_page_set_; }
 
   /**
@@ -220,10 +230,10 @@ class Transaction {
    */
   inline void AddIntoDeletedPageSet(page_id_t page_id) { deleted_page_set_->insert(page_id); }
 
-  /** @return the set of resources under a shared lock */
+  /** @return the set of resources under a shared lock，注意：它包含的是共享锁管理的元组的RID，RID表示元组的磁盘地址 */
   inline auto GetSharedLockSet() -> std::shared_ptr<std::unordered_set<RID>> { return shared_lock_set_; }
 
-  /** @return the set of rows under a shared lock */
+  /** @return the set of rows under a shared lock，它包含很多映射： 表名 --> 元组磁盘地址集合 */
   inline auto GetSharedRowLockSet() -> std::shared_ptr<std::unordered_map<table_oid_t, std::unordered_set<RID>>> {
     return s_row_lock_set_;
   }
@@ -291,7 +301,7 @@ class Transaction {
 
   /** @return the current state of the transaction */
   inline auto GetState() -> TransactionState { return state_; }
-
+  /** 它提供了事务的锁，所以显然，任何对事务的访问都必须加锁 */
   inline auto LockTxn() -> void { latch_.lock(); }
 
   inline auto UnlockTxn() -> void { latch_.unlock(); }
@@ -327,7 +337,6 @@ class Transaction {
   std::shared_ptr<std::deque<IndexWriteRecord>> index_write_set_;
   /** The LSN of the last record written by the transaction. */
   lsn_t prev_lsn_;
-
   std::mutex latch_;
 
   /** Concurrent index: the pages that were latched during index operation. */

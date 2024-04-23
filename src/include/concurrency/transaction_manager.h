@@ -1,15 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-//                         BusTub
-//
-// transaction_manager.h
-//
-// Identification: src/include/concurrency/transaction_manager.h
-//
-// Copyright (c) 2015-2019, Carnegie Mellon University Database Group
-//
-//===----------------------------------------------------------------------===//
-
 #pragma once
 
 #include <atomic>
@@ -40,6 +28,7 @@ class TransactionManager {
    * @param txn an optional transaction object to be initialized, otherwise a new transaction is created.
    * @param isolation_level an optional isolation level of the transaction.
    * @return an initialized transaction
+   * @note 第一个参数如果不填(默认为 nullptr)，会 new 一个新的事务；否则，会将你自己 new 的事务指针传进取并开始运行这个事务。
    */
   auto Begin(Transaction *txn = nullptr, IsolationLevel isolation_level = IsolationLevel::REPEATABLE_READ)
       -> Transaction *;
@@ -62,6 +51,7 @@ class TransactionManager {
 
   /** The transaction map is a global list of all the running transactions in the system. */
   static std::unordered_map<txn_id_t, Transaction *> txn_map;
+  /** C++ 17 的共享锁，类似于 Java 中的 ReadWriteLock */
   static std::shared_mutex txn_map_mutex;
 
   /**
@@ -87,6 +77,7 @@ class TransactionManager {
   /**
    * Releases all the locks held by the given transaction.
    * @param txn the transaction whose locks should be released
+   * @note 它很适合用于实现 SS2PL，因为它的功能是释放一个事务上的所有锁。
    */
   void ReleaseLocks(Transaction *txn) {
     /** Drop all row locks */
@@ -133,9 +124,10 @@ class TransactionManager {
       lock_manager_->UnlockTable(txn, oid);
     }
   }
-
+  /** 分配下一个事务的 id */
   std::atomic<txn_id_t> next_txn_id_{0};
-  LockManager *lock_manager_ __attribute__((__unused__));
+  /** 这个似乎是你需要实现的锁管理器 */
+  LockManager *lock_manager_;
   LogManager *log_manager_ __attribute__((__unused__));
 
   /** The global transaction latch is used for checkpointing. */

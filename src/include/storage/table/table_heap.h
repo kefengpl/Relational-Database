@@ -1,15 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-//                         BusTub
-//
-// table_heap.h
-//
-// Identification: src/include/storage/table/table_heap.h
-//
-// Copyright (c) 2015-2019, Carnegie Mellon University Database Group
-//
-//===----------------------------------------------------------------------===//
-
 #pragma once
 
 #include "buffer/buffer_pool_manager.h"
@@ -23,6 +11,8 @@ namespace bustub {
 /**
  * TableHeap represents a physical table on disk.
  * This is just a doubly-linked list of pages.
+ * @note 显然，每个 table 的 first_page_id_ 是不一致的，这说明所有 table 共享 page_id_
+ * 比如：table1 page_id 的范围是 [0, 7], table2 page_id 的范围是 [8, 11]
  */
 class TableHeap {
   friend class TableIterator;
