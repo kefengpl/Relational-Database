@@ -145,7 +145,8 @@ class TransactionAbortException : public std::exception {
 
 /**
  * Transaction tracks information related to a transaction.
- * @note 在这里的设计中，似乎是多个线程并发执行多个事务。再提示：多个线程可能同时操作一个事务的各种东西，所以事务本身也要考虑线程安全。
+ * @note
+ * 在这里的设计中，似乎是多个线程并发执行多个事务。再提示：多个线程可能同时操作一个事务的各种东西，所以事务本身也要考虑线程安全。
  */
 class Transaction {
  public:
@@ -183,13 +184,13 @@ class Transaction {
   /** @return the isolation level of this transaction */
   inline auto GetIsolationLevel() const -> IsolationLevel { return isolation_level_; }
 
-  /** 
+  /**
    * @return the list of table write records of this transaction
    * @note 显然，一个事务可以记录多个table写入[写入包括增删改]，数据结构是双端队列，双端队列的目的就是方便回滚。
    */
   inline auto GetWriteSet() -> std::shared_ptr<std::deque<TableWriteRecord>> { return table_write_set_; }
 
-  /** 
+  /**
    * @return the list of index write records of this transaction
    * @note 记录了index 的写入，数据结构是双端队列
    */

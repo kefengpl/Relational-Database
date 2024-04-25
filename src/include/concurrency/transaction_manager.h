@@ -28,7 +28,8 @@ class TransactionManager {
    * @param txn an optional transaction object to be initialized, otherwise a new transaction is created.
    * @param isolation_level an optional isolation level of the transaction.
    * @return an initialized transaction
-   * @note 第一个参数如果不填(默认为 nullptr)，会 new 一个新的事务；否则，会将你自己 new 的事务指针传进取并开始运行这个事务。
+   * @note 第一个参数如果不填(默认为 nullptr)，会 new 一个新的事务；否则，会将你自己 new
+   * 的事务指针传进取并开始运行这个事务。
    */
   auto Begin(Transaction *txn = nullptr, IsolationLevel isolation_level = IsolationLevel::REPEATABLE_READ)
       -> Transaction *;

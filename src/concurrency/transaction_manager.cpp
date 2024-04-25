@@ -57,7 +57,7 @@ void TransactionManager::Commit(Transaction *txn) {
 void TransactionManager::Abort(Transaction *txn) {
   txn->SetState(TransactionState::ABORTED);
   // Rollback before releasing the lock.
-  //! \note 这里进一步验证了 table_write_set 记录了所有对表格的增删改。 
+  //! \note 这里进一步验证了 table_write_set 记录了所有对表格的增删改。
   auto table_write_set = txn->GetWriteSet();
   while (!table_write_set->empty()) {
     auto &item = table_write_set->back();

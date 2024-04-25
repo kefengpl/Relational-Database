@@ -205,3 +205,9 @@ void AggregationExecutor::Init() {
 **带有谓词的锁**
 - cv_.wait(lock, predicate) 在线程被唤醒(notify)的时候，是先尝试获得锁，然后再评估谓词，防止假唤醒。
 - 在线程进入 wait 的时候，先评估谓词，如果谓词是 false， 才会释放锁并将线程休眠(阻塞)。
+
+## 任务二：死锁检测
+- 为了理解如何构建等待图，我们看下面的例子
+- 显然 T2 的 X(B) 是已经获得的锁，而 T1 S(B) 和 T4 的 X(B) 都在等待获得锁，因此存在关系：T1 -> T2, T4 -> T2
+- 每次检测的时候，你需要遍历这个请求队列上所有未 granted_ 的请求，对每个未 granted_ 的请求，遍历它前面所有 granted 的请求，如果二者存在冲突(不能共存)，则绘制一个边，即 未granted -> granted 的请求。
+![alt text](image.png)
