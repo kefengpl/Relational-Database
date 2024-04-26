@@ -1,15 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-//                         BusTub
-//
-// transaction_test.cpp
-//
-// Identification: test/concurrency/transaction_test.cpp
-//
-// Copyright (c) 2015-2021, Carnegie Mellon University Database Group
-//
-//===----------------------------------------------------------------------===//
-
 #include "concurrency/transaction.h"
 
 #include <atomic>

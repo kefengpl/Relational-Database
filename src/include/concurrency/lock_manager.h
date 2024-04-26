@@ -141,6 +141,12 @@ class LockManager {
      */
     auto UnSafeRemove(Transaction *txn) -> int;
     /**
+     * 将请求队列中某个事务的锁请求记录全部移除(一般是移除1个，因为同一资源同一事务一般仅持有一把锁)
+     * @return 返回移除元素的个数
+     * @note 该函数线程不安全
+     */
+    auto UnSafeRemove(txn_id_t target_txn_id) -> int;
+    /**
      * 将请求队列的信息打印出来
      */
     void PrintRequestQueue(LockRange lock_range);
@@ -378,6 +384,10 @@ class LockManager {
    * @return all edges in current waits_for graph
    */
   auto GetEdgeList() -> std::vector<std::pair<txn_id_t, txn_id_t>>;
+  /**
+   * 获得这个图上的所有结点
+   */
+  auto GetNodeList() -> std::vector<txn_id_t>;
 
   /**
    * Runs cycle detection in the background.
@@ -469,6 +479,11 @@ class LockManager {
   /**
    * 在某个表 oid 上，txn 是否持有任何行级别的锁？该函数主要用于判断某个表级别的锁能否释放。
    * @note 该函数理论上应该在对事务加了锁的情况下调用
+   * @bug 这里原来的逻辑判断是错误的，目前已经更正为新的逻辑
+   * @bug 它要求你判断 RequestQueue，而不是事务本身持有的锁。只要你检测的是 lock_manager 持有的队列
+   * 而不是 txn_ 持有的事务本身，LockManagerRowTest.TableTest (0/3) 测试就可以通过。这个测试本质上是
+   * 由于某个事务要解开 IS 锁而发现这个表上持有该表的 S 行锁，因此应该对该事务抛出异常。但是在某些情况下，
+   * 不会抛出异常而是解开了 S 锁，这是很匪夷所思的事情。
    */
   auto RowLockExist(Transaction *txn, const table_oid_t &oid) -> bool;
 
@@ -547,8 +562,22 @@ class LockManager {
    */
   void RemoveLockRequestOf(txn_id_t txn_id);
 
+  /**
+   * 深度优先遍历图，提示，遍历每个边的时候，txn_id 是从小到大
+   * @param start_txn_id 从这个事务开始进行 DFS
+   * @param node_path 遍历过的结点，仅用于单个连通图
+   * @param visited_set 适用于所有连通图
+   * @param edge_list 已经排好序的边记录表
+   * @param node_list 图的结点
+   * @param[out] txn_id 输出参数，储存存在环的情况下的 txn_id 最大的结点[如果未赋值，则是 -1]
+   */
+  auto DFS(txn_id_t start_txn_id, std::unordered_set<txn_id_t> &node_path, std::unordered_set<txn_id_t> &visited_set,
+           txn_id_t *txn_id) -> void;
+  /**
+   * 如果集合是空，则返回-1.否则返回集合中的最大值
+   */
+  auto FindMAXVal(const std::unordered_set<txn_id_t> &this_set) -> txn_id_t;
   // 一些用于打印的函数
-  static void PrintSourceCode(const std::string &path);
   static void PrintIntoPredicate(txn_id_t txn_id, LockMode lock_mode, LockRange lock_range, table_oid_t oid, RID rid);
 
  private:

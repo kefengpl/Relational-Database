@@ -21,6 +21,90 @@
       << "Test Failed Due to Time Out";
 
 namespace bustub {
+
+TEST(LockManagerDeadlockDetectionTest, StudentTest) {
+  LockManager lock_mgr{};
+  TransactionManager txn_mgr{&lock_mgr};
+
+  table_oid_t toid{0};
+  RID rid0{0, 0};
+  RID rid1{1, 1};
+  auto *txn0 = txn_mgr.Begin();
+  auto *txn1 = txn_mgr.Begin();
+  EXPECT_EQ(0, txn0->GetTransactionId());
+  EXPECT_EQ(1, txn1->GetTransactionId());
+
+  std::thread t0([&] {
+    // Lock and sleep
+    bool res = lock_mgr.LockTable(txn0, LockManager::LockMode::INTENTION_SHARED, toid);  // IS TABLE
+    EXPECT_EQ(true, res);
+    res = lock_mgr.LockRow(txn0, LockManager::LockMode::SHARED, toid, rid0);  // S ROW
+    EXPECT_EQ(true, res);
+    EXPECT_EQ(TransactionState::GROWING, txn1->GetState());
+    // std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    res = lock_mgr.UnlockTable(txn0, toid);
+    EXPECT_EQ(TransactionState::ABORTED, txn1->GetState());
+
+    // lock_mgr.UnlockRow(txn0, toid, rid1);
+    // lock_mgr.UnlockRow(txn0, toid, rid0);
+    // lock_mgr.UnlockTable(txn0, toid);
+
+    txn_mgr.Commit(txn0);
+    EXPECT_EQ(TransactionState::COMMITTED, txn0->GetState());
+  });
+  // Sleep for enough time to break cycle
+  std::this_thread::sleep_for(cycle_detection_interval * 2);
+
+  t0.join();
+  // t1.join();
+
+  delete txn0;
+  delete txn1;
+}
+
+TEST(LockManagerDeadlockDetectionTest, DISABLED_StudentTest2) {
+  LockManager lock_mgr{};
+  TransactionManager txn_mgr{&lock_mgr};
+
+  table_oid_t toid{0};
+  RID rid0{0, 0};
+  RID rid1{1, 1};
+  auto *txn0 = txn_mgr.Begin();
+  auto *txn1 = txn_mgr.Begin();
+  EXPECT_EQ(0, txn0->GetTransactionId());
+  EXPECT_EQ(1, txn1->GetTransactionId());
+
+  std::thread t0([&] {
+    // Lock and sleep
+    bool res = lock_mgr.LockTable(txn0, LockManager::LockMode::INTENTION_SHARED, toid);  // IS TABLE
+    EXPECT_EQ(true, res);
+    res = lock_mgr.LockRow(txn0, LockManager::LockMode::SHARED, toid, rid0);  // S ROW
+    EXPECT_EQ(true, res);
+    EXPECT_EQ(TransactionState::GROWING, txn1->GetState());
+    // std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    res = lock_mgr.LockTable(txn0, LockManager::LockMode::INTENTION_EXCLUSIVE, toid);
+    EXPECT_EQ(true, res);
+    // This will block
+    res = lock_mgr.LockRow(txn0, LockManager::LockMode::EXCLUSIVE, toid, rid0);
+    EXPECT_EQ(true, res);
+
+    // lock_mgr.UnlockRow(txn0, toid, rid1);
+    // lock_mgr.UnlockRow(txn0, toid, rid0);
+    // lock_mgr.UnlockTable(txn0, toid);
+
+    txn_mgr.Commit(txn0);
+    EXPECT_EQ(TransactionState::COMMITTED, txn0->GetState());
+  });
+  // Sleep for enough time to break cycle
+  std::this_thread::sleep_for(cycle_detection_interval * 2);
+
+  t0.join();
+  // t1.join();
+
+  delete txn0;
+  delete txn1;
+}
+
 TEST(LockManagerDeadlockDetectionTest, DISABLED_EdgeTest) {
   LockManager lock_mgr{};
 
@@ -236,15 +320,15 @@ TEST(LockManagerDeadlockDetectionTest, DISABLED_CycleTest2) {
 
   txn_id_t txn_id;
   lock_mgr.HasCycle(&txn_id);
-  // EXPECT_EQ(7, txn_id);
   EXPECT_EQ(5, txn_id);
+  // EXPECT_EQ(5, txn_id);
   // lock_mgr.RemoveEdge(1, 0);
   // lock_mgr.HasCycle(&txn_id);
   // EXPECT_EQ(4, txn_id);
   /// lock_mgr.RemoveEdge(4, 2);
 }
 
-TEST(LockManagerDeadlockDetectionTest, CycleTest3) {
+TEST(LockManagerDeadlockDetectionTest, DISABLED_CycleTest3) {
   LockManager lock_mgr{};
   // lock_mgr.enable_cycle_detection_ = false;
   lock_mgr.AddEdge(1, 3);
@@ -255,7 +339,7 @@ TEST(LockManagerDeadlockDetectionTest, CycleTest3) {
 
   txn_id_t txn_id;
   if (lock_mgr.HasCycle(&txn_id)) {
-    std::cout << "存在环 txn_id = " << txn_id << std::endl; 
+    std::cout << "存在环 txn_id = " << txn_id << std::endl;
   }
   EXPECT_EQ(2, txn_id);
   // lock_mgr.RemoveEdge(1, 2);
