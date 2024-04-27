@@ -35,13 +35,17 @@ void TransactionManager::Commit(Transaction *txn) {
   txn->SetState(TransactionState::COMMITTED);
 
   // Perform all deletes before we commit.
-  //! \note 只有在提交的时候才会执行删除元组的操作？
+  //! \note 只有在提交的时候才会执行删除元组的操作
   auto write_set = txn->GetWriteSet();
   while (!write_set->empty()) {
     auto &item = write_set->back();
     auto *table = item.table_;
     if (item.wtype_ == WType::DELETE) {
       // Note that this also releases the lock when holding the page latch.
+      // 删除元组的方法：将元组所在的 Page Fetch 到 buffer_pool_manager 中(rid 记录了所在 page 的 id)，然后
+      // 对 buffer_pool_manager 中的这个 page 进行修改即可。随后，我们的 buffer_pool_manager 会定期将数据写回磁盘
+      // 可惜这个项目没有日志，所以很可能造成数据丢失。
+      //! \note 一定要注意：在算子中，删除操作只是简单的将一些比特位设置为删除(逻辑删除)，真正删除是在这里。
       table->ApplyDelete(item.rid_, txn);
     }
     write_set->pop_back();
@@ -57,23 +61,27 @@ void TransactionManager::Commit(Transaction *txn) {
 void TransactionManager::Abort(Transaction *txn) {
   txn->SetState(TransactionState::ABORTED);
   // Rollback before releasing the lock.
-  //! \note 这里进一步验证了 table_write_set 记录了所有对表格的增删改。
+  //! \note  table_write_set 记录了所有对表格的增删改。
   auto table_write_set = txn->GetWriteSet();
   while (!table_write_set->empty()) {
     auto &item = table_write_set->back();
     auto *table = item.table_;
     if (item.wtype_ == WType::DELETE) {
+      //! \note 由于算子中的 delete 是逻辑删除，不是真的删除，所以这里只需要恢复逻辑删除元组的一些比特位
+      // 将它变成未删除的状态即可
       table->RollbackDelete(item.rid_, txn);
     } else if (item.wtype_ == WType::INSERT) {
       // Note that this also releases the lock when holding the page latch.
+      // 插入的反向操作恰好是删除，这没什么好说的
       table->ApplyDelete(item.rid_, txn);
     } else if (item.wtype_ == WType::UPDATE) {
+      // 反向更新元组即可。
       table->UpdateTuple(item.tuple_, item.rid_, txn);
     }
     table_write_set->pop_back();
   }
   table_write_set->clear();
-  // Rollback index updates
+  // Rollback index updates，把对索引的更新也恢复了
   auto index_write_set = txn->GetIndexWriteSet();
   while (!index_write_set->empty()) {
     auto &item = index_write_set->back();

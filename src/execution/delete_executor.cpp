@@ -10,11 +10,16 @@ DeleteExecutor::DeleteExecutor(ExecutorContext *exec_ctx, const DeletePlanNode *
       plan_{plan},
       child_executor_{std::move(child_executor)},
       table_info_{exec_ctx_->GetCatalog()->GetTable(plan_->TableOid())},
-      table_heap_{table_info_->table_.get()} {}
-
+      table_heap_{table_info_->table_.get()},
+      txn_{exec_ctx_->GetTransaction()},
+      lock_manager_{exec_ctx_->GetLockManager()} {}
+/**
+ * 需要获取意向锁
+ */
 void DeleteExecutor::Init() {
   child_executor_->Init();
   reentrant_ = false;
+  lock_manager_->LockTableWrapper(txn_, LockManager::LockMode::INTENTION_EXCLUSIVE, plan_->TableOid());
 }
 
 auto DeleteExecutor::Next(Tuple *tuple, RID *rid) -> bool {
@@ -32,6 +37,8 @@ auto DeleteExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   }
   std::vector<IndexInfo *> index_info_list{exec_ctx_->GetCatalog()->GetTableIndexes(table_info_->name_)};
   do {
+    // 对行加写锁[注意：不需要释放锁，因为只要释放，就进入收缩阶段，后续无法再获得该锁]
+    lock_manager_->LockRowWrapper(txn_, LockManager::LockMode::EXCLUSIVE, plan_->TableOid(), *rid);
     // 删除元组并更新索引
     table_heap_->MarkDelete(*rid, exec_ctx_->GetTransaction());
     for (IndexInfo *index_info : index_info_list) {
@@ -39,6 +46,9 @@ auto DeleteExecutor::Next(Tuple *tuple, RID *rid) -> bool {
       Tuple key{child_tuple.KeyFromTuple(child_executor_->GetOutputSchema(), *(index_info->index_->GetKeySchema()),
                                          index_info->index_->GetKeyAttrs())};
       index_info->index_->DeleteEntry(key, *rid, exec_ctx_->GetTransaction());
+      // 记录对索引的更新
+      txn_->GetIndexWriteSet()->emplace_back(*rid, plan_->TableOid(), WType::DELETE, key, index_info->index_oid_,
+                                             exec_ctx_->GetCatalog());
     }
     delete_num = delete_num.Add(Value(TypeId::INTEGER, 1));
   } while (child_executor_->Next(&child_tuple, rid));

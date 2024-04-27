@@ -54,13 +54,11 @@ class LockManager {
       }
       txn_->LockTxn();
       holding_lock_ = true;
-      std::cout << "txn_id = " << txn_->GetTransactionId() << " 事务上的锁已经被获取了" << std::endl;
     }
     void UnLock() {
       if (holding_lock_) {
         txn_->UnlockTxn();
         holding_lock_ = false;
-        std::cout << "txn_id = " << txn_->GetTransactionId() << " 事务上的锁已经被释放了" << std::endl;
       }
     }
     ~TxnLatchGuard() { UnLock(); }
@@ -108,7 +106,6 @@ class LockManager {
      * 记录了一些锁的请求信息，是锁请求的等待队列。杜绝使用裸指针后忘记释放锁的问题，所以直接使用独占指针
      */
     std::list<std::unique_ptr<LockRequest>> request_queue_;
-    // std::list<LockRequest *> request_queue_;
     /** For notifying blocked transactions on this rid */
     std::condition_variable cv_;
     /** txn_id of an upgrading transaction (if any) */
@@ -146,10 +143,6 @@ class LockManager {
      * @note 该函数线程不安全
      */
     auto UnSafeRemove(txn_id_t target_txn_id) -> int;
-    /**
-     * 将请求队列的信息打印出来
-     */
-    void PrintRequestQueue(LockRange lock_range);
   };
 
   /**
@@ -567,8 +560,6 @@ class LockManager {
    * @param start_txn_id 从这个事务开始进行 DFS
    * @param node_path 遍历过的结点，仅用于单个连通图
    * @param visited_set 适用于所有连通图
-   * @param edge_list 已经排好序的边记录表
-   * @param node_list 图的结点
    * @param[out] txn_id 输出参数，储存存在环的情况下的 txn_id 最大的结点[如果未赋值，则是 -1]
    */
   auto DFS(txn_id_t start_txn_id, std::unordered_set<txn_id_t> &node_path, std::unordered_set<txn_id_t> &visited_set,
@@ -577,8 +568,14 @@ class LockManager {
    * 如果集合是空，则返回-1.否则返回集合中的最大值
    */
   auto FindMAXVal(const std::unordered_set<txn_id_t> &this_set) -> txn_id_t;
-  // 一些用于打印的函数
-  static void PrintIntoPredicate(txn_id_t txn_id, LockMode lock_mode, LockRange lock_range, table_oid_t oid, RID rid);
+
+  /**
+   * 包装函数，它们调用原始的函数，但是会在内部捕获并抛出异常。
+   */
+  void LockTableWrapper(Transaction *txn, LockMode lock_mode, const table_oid_t &oid);
+  void UnlockTableWrapper(Transaction *txn, const table_oid_t &oid);
+  void LockRowWrapper(Transaction *txn, LockMode lock_mode, const table_oid_t &oid, const RID &rid);
+  void UnLockRowWrapper(Transaction *txn, const table_oid_t &oid, const RID &rid);
 
  private:
   /** Structure that holds lock requests for a given table oid<它存放了所有等待获取锁的事务 */

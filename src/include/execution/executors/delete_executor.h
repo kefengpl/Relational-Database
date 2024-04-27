@@ -53,5 +53,7 @@ class DeleteExecutor : public AbstractExecutor {
   bool reentrant_;         // 重入标记，检查是否重入
   TableInfo *table_info_;  // 单表删除。该变量储存了 table 的元信息
   TableHeap *table_heap_;  // 由于要删除元素，所以需要这个东西
+  Transaction *txn_;
+  LockManager *lock_manager_;
 };
 }  // namespace bustub

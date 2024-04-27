@@ -50,6 +50,8 @@ class InsertExecutor : public AbstractExecutor {
   TableHeap *table_heap_;  // 由于要插入元素，所以需要这个东西
   Value insert_num_;       // 成功插入元组的个数，这个共用即可
   bool reentrance_;  // 重入标记，用于区分是由于insert成功的元素个数是0，或者是由于重入需要直接返回
+  Transaction *txn_;
+  LockManager *lock_manager_;
 };
 
 }  // namespace bustub

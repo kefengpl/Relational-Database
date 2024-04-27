@@ -6,11 +6,6 @@
 
 namespace bustub {
 
-void PrintGetMapLock(Transaction *txn);
-void PrintReleaseMapLock(Transaction *txn);
-void PrintGetRequestQueueLock(Transaction *txn, const table_oid_t &oid, LockManager::LockRange lock_range, RID rid);
-void PrintReleaseRequestQueueLock(Transaction *txn, const table_oid_t &oid);
-
 std::unordered_map<LockManager::LockMode, std::string> mode_map{
     {LockManager::LockMode::SHARED, "S"},
     {LockManager::LockMode::EXCLUSIVE, "X"},
@@ -21,48 +16,53 @@ std::unordered_map<LockManager::LockMode, std::string> mode_map{
 std::unordered_map<LockManager::LockRange, std::string> range_map{{LockManager::LockRange::ROW, "ROW"},
                                                                   {LockManager::LockRange::TABLE, "TABLE"}};
 
-auto LockManager::LockTable(Transaction *txn, LockMode lock_mode, const table_oid_t &oid) -> bool {
-  std::cout << "尝试获取表锁 事务 id = " << txn->GetTransactionId() << ", 锁的等级 = " << mode_map[lock_mode]
-            << ", 锁住的对象 = " << oid << std::endl;
-  bool res{LockResource(txn, lock_mode, oid, LockRange::TABLE)};
-  if (res) {
-    std::cout << "获取表锁成功 事务 id = " << txn->GetTransactionId() << ", 锁的等级 = " << mode_map[lock_mode]
-              << ", 锁住的对象 = " << oid << std::endl;
-  } else {
-    std::cout << "获取表锁失败 事务 id = " << txn->GetTransactionId() << ", 锁的等级 = " << mode_map[lock_mode]
-              << ", 锁住的对象 = " << oid << std::endl;
+void LockManager::LockTableWrapper(Transaction *txn, LockMode lock_mode, const table_oid_t &oid) {
+  try {
+    if (!this->LockTable(txn, lock_mode, oid)) {
+      throw ExecutionException("LockTable failed");
+    }
+  } catch (TransactionAbortException &e) {
+    throw ExecutionException("LockTable failed");
   }
-  return res;
+}
+void LockManager::UnlockTableWrapper(Transaction *txn, const table_oid_t &oid) {
+  try {
+    this->UnlockTable(txn, oid);
+  } catch (TransactionAbortException &e) {
+    throw ExecutionException("UnLockTable failed");
+  }
+}
+void LockManager::LockRowWrapper(Transaction *txn, LockMode lock_mode, const table_oid_t &oid, const RID &rid) {
+  try {
+    if (!this->LockRow(txn, lock_mode, oid, rid)) {
+      throw ExecutionException("LockRow failed");
+    }
+  } catch (TransactionAbortException &e) {
+    throw ExecutionException("LockRow failed");
+  }
+}
+void LockManager::UnLockRowWrapper(Transaction *txn, const table_oid_t &oid, const RID &rid) {
+  try {
+    this->UnlockRow(txn, oid, rid);
+  } catch (TransactionAbortException &e) {
+    throw ExecutionException("UnLockRow failed");
+  }
+}
+
+auto LockManager::LockTable(Transaction *txn, LockMode lock_mode, const table_oid_t &oid) -> bool {
+  return LockResource(txn, lock_mode, oid, LockRange::TABLE);
 }
 
 auto LockManager::UnlockTable(Transaction *txn, const table_oid_t &oid) -> bool {
-  std::cout << "尝试释放表锁 事务 id = " << txn->GetTransactionId() << ", 锁住的对象 = " << oid << std::endl;
-  bool res{UnLockResource(txn, oid, LockRange::TABLE)};
-  std::cout << "释放表锁结束 事务 id = " << txn->GetTransactionId() << ", 锁住的对象 = " << oid << std::endl;
-  return res;
+  return UnLockResource(txn, oid, LockRange::TABLE);
 }
 
 auto LockManager::LockRow(Transaction *txn, LockMode lock_mode, const table_oid_t &oid, const RID &rid) -> bool {
-  std::cout << "尝试获取行锁 事务 id = " << txn->GetTransactionId() << ", 锁的等级 = " << mode_map[lock_mode]
-            << ", 锁住的对象 oid = " << oid << ", rid = " << rid << std::endl;
-  bool res{LockResource(txn, lock_mode, oid, LockRange::ROW, rid)};
-  if (res) {
-    std::cout << "获取行锁成功 事务 id = " << txn->GetTransactionId() << ", 锁的等级 = " << mode_map[lock_mode]
-              << ", 锁住的对象 = " << oid << ", rid = " << rid << std::endl;
-  } else {
-    std::cout << "获取行锁失败 事务 id = " << txn->GetTransactionId() << ", 锁的等级 = " << mode_map[lock_mode]
-              << ", 锁住的对象 = " << oid << ", rid = " << rid << std::endl;
-  }
-  return res;
+  return LockResource(txn, lock_mode, oid, LockRange::ROW, rid);
 }
 
 auto LockManager::UnlockRow(Transaction *txn, const table_oid_t &oid, const RID &rid) -> bool {
-  std::cout << "尝试释放行锁 事务 id = " << txn->GetTransactionId() << ", 锁住的对象 = " << oid << ", rid = " << rid
-            << std::endl;
-  bool res{UnLockResource(txn, oid, LockRange::ROW, rid)};
-  std::cout << "释放行锁结束 事务 id = " << txn->GetTransactionId() << ", 锁住的对象 = " << oid << ", rid = " << rid
-            << std::endl;
-  return res;
+  return UnLockResource(txn, oid, LockRange::ROW, rid);
 }
 
 auto LockManager::LockResource(Transaction *txn, LockMode lock_mode, const table_oid_t &oid, LockRange lock_range,
@@ -74,13 +74,13 @@ auto LockManager::LockResource(Transaction *txn, LockMode lock_mode, const table
     return false;
   }
   // 给这个事务加大锁，防止其一致性状态发生改变
-  // TxnLatchGuard txn_latch_guard{txn};
+  TxnLatchGuard txn_latch_guard{txn};
   LockIllegalCheck(txn, lock_mode, oid, lock_range);  // 检查加锁合法性，失败自然会抛异常的
   //! \bug 这里也忘记传参 RID 了，导致行锁无法升级
   std::optional<LockMode> cur_lock_mode{GetLockLevel(txn, oid, lock_range, rid)};
   if (cur_lock_mode != std::nullopt) {
-    std::cout << "当前持有的锁的等级 = " << mode_map[cur_lock_mode.value()] << ", 锁住的对象 = " << oid
-              << ", rid = " << rid << std::endl;
+    /* std::cout << "当前持有的锁的等级 = " << mode_map[cur_lock_mode.value()] << ", 锁住的对象 = " << oid
+              << ", rid = " << rid << std::endl; */
     if (cur_lock_mode.value() == lock_mode) {
       return true;
     }
@@ -95,12 +95,11 @@ auto LockManager::LockResource(Transaction *txn, LockMode lock_mode, const table
 }
 
 auto LockManager::UnLockResource(Transaction *txn, const table_oid_t &oid, LockRange lock_range, RID rid) -> bool {
-  // std::lock_guard<std::mutex> big_lock_guard{waits_for_latch_}; // 看看直接加大锁是否有神奇功效
   if (txn == nullptr) {
     return false;
   }
   // 给这个事务加大锁，防止其一致性状态发生改变
-  // TxnLatchGuard txn_latch_guard{txn};
+  TxnLatchGuard txn_latch_guard{txn};
   std::optional<LockMode> cur_lock_mode{GetLockLevel(txn, oid, lock_range, rid)};  //! \bug 这里忘记传参 rid 了！
   if (cur_lock_mode == std::nullopt) {                                             // 根本不持有该资源的锁
     AbortAndThrowException(txn, AbortReason::ATTEMPTED_UNLOCK_BUT_NO_LOCK_HELD);
@@ -110,15 +109,12 @@ auto LockManager::UnLockResource(Transaction *txn, const table_oid_t &oid, LockR
   }
   std::mutex &lock_map_latch{lock_range == LockRange::TABLE ? table_lock_map_latch_ : row_lock_map_latch_};
   std::unique_lock<std::mutex> lock_map_guard{lock_map_latch};
-  PrintGetMapLock(txn);
 
   std::shared_ptr<LockRequestQueue> lock_request_queue{lock_range == LockRange::TABLE ? table_lock_map_[oid]
                                                                                       : row_lock_map_[rid]};
   std::unique_lock<std::mutex> request_queue_guard{lock_request_queue->latch_};
-  PrintGetRequestQueueLock(txn, oid, lock_range, rid);
 
   // lock_map_guard.unlock();
-  PrintReleaseMapLock(txn);
   // 移除请求队列中的所有与这个事务相关的锁请求(大部分情况下就是一个事务只持有相同资源的一把锁！)
   lock_request_queue->UnSafeRemove(txn);
   lock_request_queue->cv_.notify_all();  // 让大家再去争夺锁资源
@@ -294,9 +290,7 @@ auto LockManager::TryLock(Transaction *txn, LockMode lock_mode, const table_oid_
                           bool upgrade) -> void {
   std::mutex &lock_map_latch{lock_range == LockRange::TABLE ? table_lock_map_latch_ : row_lock_map_latch_};
   std::unique_lock<std::mutex> lock_map_guard{lock_map_latch};
-  PrintGetMapLock(txn);
-  // 1.
-  // 争做吃螃蟹的第一人，还没有任何事务在这个资源上加锁。注意：为了线程安全，后面即便队列清空，也不会删除这个创建的队列了
+  // 1.争做吃螃蟹第一人，还没有任何事务在这个资源上加锁。注意：为了线程安全，后面即便队列清空，也不会删除这个创建的队列了
   if (TryInsertNewBucket(txn, lock_mode, oid, lock_range, rid)) {
     return;
   }
@@ -305,15 +299,12 @@ auto LockManager::TryLock(Transaction *txn, LockMode lock_mode, const table_oid_
                                                                                       : row_lock_map_[rid]};
   //! \note 这里或许可以释放 lock_map_guard 的锁了
   std::unique_lock<std::mutex> request_queue_guard{lock_request_queue->latch_};
-  PrintGetRequestQueueLock(txn, oid, lock_range, rid);
   lock_map_guard.unlock();
-  PrintReleaseMapLock(txn);
   if (upgrade && lock_request_queue->upgrading_ != INVALID_TXN_ID) {  // 只允许有一个事务进行升级
     AbortAndThrowException(txn, AbortReason::UPGRADE_CONFLICT);
   }
   //! \bug 只有升级的时候才需要 if (upgrade) 里面的代码 ！
   if (upgrade) {
-    std::cout << "正在进行锁升级" << std::endl;
     lock_request_queue->upgrading_ = txn->GetTransactionId();
     // 删除事务里面对该资源的锁记录以及队列的锁请求
     DropLock(txn, oid, lock_range, GetLockLevel(txn, oid, lock_range, rid).value(), rid);
@@ -321,18 +312,11 @@ auto LockManager::TryLock(Transaction *txn, LockMode lock_mode, const table_oid_
   }
 
   LockRequest *this_request{lock_request_queue->InsertToRequestQueue(txn, lock_mode, oid, rid, upgrade)};
-  lock_request_queue->PrintRequestQueue(lock_range);
   lock_request_queue->cv_.wait(request_queue_guard, [&]() -> bool {
-    PrintIntoPredicate(txn->GetTransactionId(), lock_mode, lock_range, oid, rid);
-    if (txn->GetState() == TransactionState::ABORTED) {
-      std::cout << "txn_id = " << txn->GetTransactionId() << " 的事务被抛弃了" << std::endl;
-    }
     return (txn->GetState() == TransactionState::ABORTED || TryGrantLock(lock_request_queue, this_request));
   });
-  std::cout << "事务 id = " << txn->GetTransactionId() << "从 wait 中醒过来了" << std::endl;
-  lock_request_queue->PrintRequestQueue(lock_range);
-  // 由于事务中途被抛弃，获取锁宣告失败，生成的锁请求也需要取消[注意：我们在 PreviousLockReuqests 中考虑了中途 ABORTED
-  // 的情况]
+  // 由于事务中途被抛弃，获取锁宣告失败，生成的锁请求也需要取消
+  // [注意：我们在 PreviousLockReuqests 中考虑了中途 ABORTED 的情况]
   if (txn->GetState() == TransactionState::ABORTED) {
     //! \note 这个或许也是不必要的，因为 Abort 函数会自动该事务的清空锁请求记录以及 txn 本身的锁记录
     lock_request_queue->UnSafeRemove(txn);
@@ -359,8 +343,7 @@ auto LockManager::TryInsertNewBucket(Transaction *txn, LockMode lock_mode, const
   }
   // TABLE 的情况
   if (lock_range == LockRange::TABLE) {
-    // 1.
-    // 争做吃螃蟹的第一人，还没有任何事务在这个表上加锁。注意：为了线程安全，后面即便队列清空，也不会删除这个创建的队列了
+    // 1. 争做吃螃蟹第一人，还没有任何事务在这个表上加锁。注意：为了线程安全，后面即便队列清空，也不会删除这个创建的队列了
     if (table_lock_map_.find(oid) == table_lock_map_.end()) {
       table_lock_map_[oid] = std::make_shared<LockRequestQueue>();
       table_lock_map_[oid]->request_queue_.push_back(
@@ -406,7 +389,7 @@ auto LockManager::TryGrantLock(std::shared_ptr<LockRequestQueue> &lock_request_q
     if (!cur_lock_request->granted_ && !TryGrantLock(lock_request_queue, cur_lock_request.get())) {
       return false;
     }
-    cur_lock_requests.insert(cur_lock_request->lock_mode_);
+    cur_lock_requests.insert(cur_lock_request->lock_mode_); // 如果前面的请求能够授予，或者已经授予，都加入授予锁请求的集合 
   }
   bool can_coexistence{
       std::all_of(cur_lock_requests.begin(), cur_lock_requests.end(), [request_addr](LockMode cur_lock_mode) {
@@ -453,8 +436,6 @@ auto LockManager::LockRequestQueue::InsertToRequestQueue(Transaction *txn, LockM
                                                          RID rid, bool upgrade) -> LockRequest * {
   if (!upgrade) {
     request_queue_.push_back(std::make_unique<LockRequest>(txn->GetTransactionId(), lock_mode, oid, rid));
-    std::cout << "锁请求已加入队列 事务 id = " << txn->GetTransactionId() << "锁的等级 = " << mode_map[lock_mode]
-              << std::endl;
     return request_queue_.back().get();
   }
   auto it{request_queue_.begin()};
@@ -466,8 +447,6 @@ auto LockManager::LockRequestQueue::InsertToRequestQueue(Transaction *txn, LockM
   }
   LockRequest *request{new LockRequest{txn->GetTransactionId(), lock_mode, oid, rid}};
   request_queue_.insert(it, std::unique_ptr<LockRequest>{request});
-  std::cout << "锁请求已加入队列 事务 id = " << txn->GetTransactionId() << "锁的等级 = " << mode_map[lock_mode]
-            << std::endl;
   return request;
 }
 
@@ -480,7 +459,6 @@ auto LockManager::LockRequestQueue::UnSafeRemove(Transaction *txn) -> int {
     }
     return will_remove;
   });
-  std::cout << "正在移除请求队列中的元素，移除元素个数 = " << remove_count << std::endl;
   return remove_count;
 }
 
@@ -501,7 +479,6 @@ auto LockManager::RowLockExist(Transaction *txn, const table_oid_t &oid) -> bool
   for (auto &pair : row_lock_map_) {
     std::shared_ptr<LockRequestQueue> request_queue{pair.second};
     std::unique_lock<std::mutex> request_queue_guard{request_queue->latch_};
-    ;
     for (auto &request : request_queue->request_queue_) {
       if (request->oid_ == oid && txn->GetTransactionId() == request->txn_id_) {
         return true;
@@ -510,25 +487,6 @@ auto LockManager::RowLockExist(Transaction *txn, const table_oid_t &oid) -> bool
   }
   return false;
 }
-
-/* auto LockManager::RowLockExist(Transaction *txn, const table_oid_t &oid) -> bool {
-  auto x_row_lock_set{txn->GetExclusiveRowLockSet()};
-  //! \bug 这里似乎忘记判断行级别的 S 锁了？
-  auto s_row_lock_set{txn->GetSharedRowLockSet()};
-  auto row_lock_set = x_row_lock_set->find(oid);
-  auto s_row_set = s_row_lock_set->find(oid);
-  if (row_lock_set == x_row_lock_set->end() && s_row_set == s_row_lock_set->end()) {
-    return false;
-  }
-  if (row_lock_set != x_row_lock_set->end() && s_row_set == s_row_lock_set->end()) {
-    return !row_lock_set->second.empty();
-  }
-  if (row_lock_set == x_row_lock_set->end() && s_row_set != s_row_lock_set->end()) {
-    return !s_row_set->second.empty();
-  }
-  // 两个 bucket 都存在，那么返回都不是空
-  return !row_lock_set->second.empty() && !s_row_set->second.empty();
-} */
 
 auto LockManager::ChangeTxnState(Transaction *txn, LockMode lock_mode) -> void {
   if (txn == nullptr) {
@@ -552,66 +510,11 @@ auto LockManager::AbortAndThrowException(Transaction *txn, AbortReason abort_rea
   throw TransactionAbortException{txn->GetTransactionId(), abort_reason};
 }
 
-void LockManager::LockRequestQueue::PrintRequestQueue(LockRange lock_range) {
-  /* std::cout << "===============" << std::endl;
-  std::cout << "锁范围: " << range_map[lock_range];
-  table_oid_t oid{request_queue_.front()->oid_};
-  RID rid{request_queue_.front()->rid_};
-  if (lock_range == LockRange::ROW) {
-    std::cout << ", 锁住的对象 oid = " << oid << ", rid = " << rid;
-  } else {
-    std::cout << ", 锁住的对象 = " << oid;
-  }
-  std::cout << std::endl;
-  for (auto &lock_request : request_queue_) {
-    std::cout << "[txn_id]: " << lock_request->txn_id_ << ", [lock_mode]: " << mode_map[lock_request->lock_mode_]
-              << ", [granted]: " << lock_request->granted_ << std::endl;
-  }
-  std::cout << "===============" << std::endl << std::endl; */
-}
-
-void LockManager::PrintIntoPredicate(txn_id_t txn_id, LockMode lock_mode, LockRange lock_range, table_oid_t oid,
-                                     RID rid) {
-  std::cout << "事务进入谓词判定，尝试获取锁 事务 id = " << txn_id << ", 锁的等级 = " << mode_map[lock_mode]
-            << ", 锁的范围 = " << range_map[lock_range] << ", 锁住的对象 = " << oid;
-  if (lock_range == LockRange::ROW) {
-    std::cout << ", 锁住的对象 oid = " << oid << ", rid = " << rid;
-  } else {
-    std::cout << ", 锁住的对象 = " << oid;
-  }
-  std::cout << std::endl;
-}
-
-void PrintGetMapLock(Transaction *txn) {
-  std::cout << "lock_map 的锁已经被获取了，线程 id = " << txn->GetThreadId()
-            << ", 事务 id = " << txn->GetTransactionId() << std::endl;
-}
-
-void PrintReleaseMapLock(Transaction *txn) {
-  std::cout << "lock_map 的锁已经被释放了，线程 id = " << txn->GetThreadId()
-            << ", 事务 id = " << txn->GetTransactionId() << std::endl;
-}
-void PrintGetRequestQueueLock(Transaction *txn, const table_oid_t &oid, LockManager::LockRange lock_range, RID rid) {
-  std::cout << "LockRequestQueue 的锁已经被获取了，锁的范围是: " << range_map[lock_range];
-  if (lock_range == LockManager::LockRange::ROW) {
-    std::cout << ", 它的 oid = " << oid << ", rid = " << rid;
-  } else {
-    std::cout << ", 它的 oid = " << oid;
-  }
-  std::cout << ", 线程 id = " << txn->GetThreadId() << ", 事务 id = " << txn->GetTransactionId() << std::endl;
-}
-void PrintReleaseRequestQueueLock(Transaction *txn, const table_oid_t &oid, LockManager::LockRange lock_range,
-                                  RID rid) {
-  std::cout << "LockRequestQueue 的锁已经被释放了，它的 oid = " << oid << ", 线程 id = " << txn->GetThreadId()
-            << ", 事务 id = " << txn->GetTransactionId() << std::endl;
-}
-
 void LockManager::AddEdge(txn_id_t t1, txn_id_t t2) {
   std::vector<txn_id_t> &edges{waits_for_[t1]};  // 添加必然会创建新的记录
   if (std::find(edges.begin(), edges.end(), t2) != edges.end()) {
     return;
   }
-  std::cout << "添加了一条边：" << t1 << " -> " << t2 << std::endl;
   waits_for_[t1].push_back(t2);
 }
 
@@ -624,7 +527,6 @@ void LockManager::RemoveEdge(txn_id_t t1, txn_id_t t2) {
   if (it == edges.end()) {
     return;
   }
-  std::cout << "移除了一条边：" << t1 << " -> " << t2 << std::endl;
   edges.erase(it);
 }
 
@@ -699,12 +601,10 @@ auto LockManager::HasCycle(txn_id_t *txn_id) -> bool {
     if (visited_set.find(node) == visited_set.end()) {
       DFS(node, node_path, visited_set, txn_id);
       if (*txn_id != INVALID_TXN_ID) {
-        std::cout << "等待图中存在环，抛弃 txn_id = " << *txn_id << std::endl;
         return true;
       }
     }
   }
-  std::cout << "等待图中不存在环" << std::endl;
   return false;
 }
 
@@ -738,10 +638,6 @@ void LockManager::ConstructGraphByOneQueue(std::shared_ptr<LockRequestQueue> &re
   std::list<std::unique_ptr<LockRequest>> &request_queue{request_queue_ptr->request_queue_};
   std::unordered_set<LockRequest *> cur_granted_reuqests{};  // 记录遍历到当前的所有 granted_ 的请求
   for (std::unique_ptr<LockRequest> &lock_request : request_queue) {
-    /* TransactionState txn_state{TransactionManager::GetTransaction(lock_request->txn_id_)->GetState()};
-    if (txn_state == TransactionState::ABORTED || txn_state == TransactionState::COMMITTED) {
-      continue;  // 我们始终忽略队列中 ABORTED 或者 COMMITTED 的事务，它们是完成的事务，锁请求队列中的东西没有任何意义
-    } */
     if (lock_request->granted_) {
       cur_granted_reuqests.insert(lock_request.get());
     } else {
@@ -797,7 +693,6 @@ void LockManager::RunCycleDetection() {
   while (enable_cycle_detection_) {
     std::this_thread::sleep_for(cycle_detection_interval);
     {
-      std::cout << "=====死锁检测开始=====" << std::endl;
       // 死锁检测的时候禁止其它线程访问 *_lock_map_，于是，所有的锁请求队列也被禁止访问了
       std::unique_lock<std::mutex> table_lock_map_guard{table_lock_map_latch_};
       std::unique_lock<std::mutex> row_lock_map_guard{row_lock_map_latch_};
@@ -806,10 +701,8 @@ void LockManager::RunCycleDetection() {
       if (HasCycle(&aborting_txn_id)) {
         // 有环的情况下，你必须将某个事务的状态设为抛弃，卸下它在相关队列中的锁[当然你也可以不卸下锁]，然后通知其它小伙伴
         TransactionManager::GetTransaction(aborting_txn_id)->SetState(TransactionState::ABORTED);
-        // std::cout << "等待图中存在环，抛弃 txn_id = " << aborting_txn_id << std::endl;
         RemoveLockRequestOf(aborting_txn_id);
       }
-      std::cout << "=====死锁检测结束=====" << std::endl;
     }
   }
 }

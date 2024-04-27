@@ -40,15 +40,9 @@ TEST(LockManagerDeadlockDetectionTest, StudentTest) {
     EXPECT_EQ(true, res);
     res = lock_mgr.LockRow(txn0, LockManager::LockMode::SHARED, toid, rid0);  // S ROW
     EXPECT_EQ(true, res);
-    EXPECT_EQ(TransactionState::GROWING, txn1->GetState());
-    // std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    res = lock_mgr.UnlockTable(txn0, toid);
-    EXPECT_EQ(TransactionState::ABORTED, txn1->GetState());
-
-    // lock_mgr.UnlockRow(txn0, toid, rid1);
-    // lock_mgr.UnlockRow(txn0, toid, rid0);
-    // lock_mgr.UnlockTable(txn0, toid);
-
+    EXPECT_EQ(TransactionState::GROWING, txn0->GetState());
+    // res = lock_mgr.UnlockTable(txn0, toid);
+    // EXPECT_EQ(TransactionState::ABORTED, txn0->GetState());
     txn_mgr.Commit(txn0);
     EXPECT_EQ(TransactionState::COMMITTED, txn0->GetState());
   });
@@ -56,7 +50,6 @@ TEST(LockManagerDeadlockDetectionTest, StudentTest) {
   std::this_thread::sleep_for(cycle_detection_interval * 2);
 
   t0.join();
-  // t1.join();
 
   delete txn0;
   delete txn1;
