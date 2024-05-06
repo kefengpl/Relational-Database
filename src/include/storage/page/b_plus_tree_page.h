@@ -76,7 +76,7 @@ class BPlusTreePage {
   //! \note 这个 B+ 树允许叶子结点和内部结点的阶是不一样的。
   // member variable, attributes that both internal and leaf page share
   IndexPageType page_type_;
-  lsn_t lsn_ __attribute__((__unused__));  // 项目4才会使用，不用管
+  lsn_t lsn_ __attribute__((__unused__));  // 项目4才会使用，不用管。很好，项目4也没有使用。
   //! \note size_ 始终代表的是键值对的个数，插入一个键值对，你就应该给他 + 1，通过 GetKeyNum() 获得当前 key 的个数即可。
   int size_;  // 键值对之个数。叶子结点：size_ 是 key 的个数；非叶子结点 size_ 是 child 指针的个数[也是 key-value
               // 对，包含第一个空 key 情况下的个数]。

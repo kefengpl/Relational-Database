@@ -1,15 +1,3 @@
-//===----------------------------------------------------------------------===//
-//
-//                         BusTub
-//
-// lru_replacer.cpp
-//
-// Identification: src/buffer/lru_replacer.cpp
-//
-// Copyright (c) 2015-2019, Carnegie Mellon University Database Group
-//
-//===----------------------------------------------------------------------===//
-
 #include "buffer/lru_replacer.h"
 
 namespace bustub {

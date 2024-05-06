@@ -79,8 +79,6 @@ auto LockManager::LockResource(Transaction *txn, LockMode lock_mode, const table
   //! \bug 这里也忘记传参 RID 了，导致行锁无法升级
   std::optional<LockMode> cur_lock_mode{GetLockLevel(txn, oid, lock_range, rid)};
   if (cur_lock_mode != std::nullopt) {
-    /* std::cout << "当前持有的锁的等级 = " << mode_map[cur_lock_mode.value()] << ", 锁住的对象 = " << oid
-              << ", rid = " << rid << std::endl; */
     if (cur_lock_mode.value() == lock_mode) {
       return true;
     }
