@@ -149,14 +149,14 @@ class LRUKReplacer {
   // Remove maybe_unused if you start using them.
   [[maybe_unused]] size_t current_timestamp_{0};
   size_t curr_size_{0};  // 记录 evitable page 的数目(也就是 unpinned)，初始这个值是0
-  size_t replacer_size_;  // buffer pool 的大小，表示能够存放的页的最多数量(在 MySQL 中，一个页是 16KB)
+  size_t replacer_size_;  // buffer pool 的大小，表示能够存放的页的最多数量(在 MySQL 中，一个页是 16KB，在我们的实验中，一个页是 4KB)
   size_t k_;              // LRU-K 算法的这个 K 。
   // 提示：你的核心数据结构应该是一个 set，用队列记录最近 k 次访问先后的时间戳
   // 使用一个 map 记录某个 frame 是否能够被驱逐(一个 frame 使用 frame_id_t 来表示即可)
   std::unordered_map<frame_id_t, bool>
       frame_evictable_{};  // 记录每个页能否被驱逐[它的元素数目应该和下面 access_records 的数目一致]
   std::map<frame_id_t, std::queue<size_t>> access_records_{};  // 记录每个页的访问时间戳[用队列维护]
-  size_t access_count_{0};                                     // 记录访问次数的计数器
+  size_t access_count_{0};                                     // 记录访问次数的计数器，把它当作时间戳即可。
   std::mutex latch_;
 };
 

@@ -105,8 +105,8 @@ void BufferPoolManagerInstance::PinPage(Page *page, frame_id_t frame_id) {
 
 auto BufferPoolManagerInstance::UnpinPgImp(page_id_t page_id, bool is_dirty) -> bool {
   std::lock_guard<std::recursive_mutex> guard(latch_);
-  frame_id_t frame_id{};
-  Page *page{FindPage(page_id, frame_id)};  // 为什么会找不到这个叶子结点？
+  frame_id_t frame_id{}; // 提示：frame_id 是 FindPage 的输出参数
+  Page *page{FindPage(page_id, frame_id)};  // 为什么会找不到这个B+树的叶子结点？
   if (page == nullptr) {
     return false;
   }

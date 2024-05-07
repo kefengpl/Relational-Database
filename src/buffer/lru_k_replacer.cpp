@@ -74,12 +74,11 @@ void LRUKReplacer::SetEvictable(frame_id_t frame_id, bool set_evictable) {
   std::lock_guard<std::mutex> latch_guard(latch_);  // 加锁，对下面的部分进行保护
   // 1. 如果 frame_id 无效，直接抛出异常
   BUSTUB_ASSERT(IsValid(frame_id), "Invalid frame id.");
-  // 1.5 如果 这个 frame_id 不存在，则直接返回
+  // 1.5 如果 这个 frame_id 不存在，则直接返回[根本没有访问记录]
   if (access_records_.find(frame_id) == access_records_.end()) {
     return;
   }
   // 2. 其它正常情况，需要将 frame_id 对应的标记进行修改，并修改 curr_size_(当前可驱逐 page 的数量)
-  // std::lock_guard<std::mutex> cur_size_guard(cur_size_latch_);  // 对 curr_size_ 进行保护
   if (frame_evictable_.find(frame_id) == frame_evictable_.end()) {  // 新建元组，默认是 true
     frame_evictable_[frame_id] = true;
     curr_size_++;

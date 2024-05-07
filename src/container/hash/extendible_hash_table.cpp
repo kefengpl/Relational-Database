@@ -71,7 +71,7 @@ auto ExtendibleHashTable<K, V>::Remove(const K &key) -> bool {
 template <typename K, typename V>
 auto ExtendibleHashTable<K, V>::ResetDirectory() -> void {
   std::set<std::shared_ptr<Bucket>> bucket_visited{};
-  // 遍历 directory 的前半部分，这前半部分的桶是已经被安排好的
+  // 遍历 directory 确保每个桶都被访问过，并且仅被访问一次。注意：由于递归桶分裂，所以dir_可能扩大为原来的2，4，8倍等
   for (size_t idx = 0; idx < this->dir_.size(); ++idx) {
     std::shared_ptr<Bucket> bucket_ptr = dir_[idx];
     // 利用集合，确保每个桶仅被访问一次
@@ -81,7 +81,8 @@ auto ExtendibleHashTable<K, V>::ResetDirectory() -> void {
     // 记录某个桶被访问了
     bucket_visited.insert(bucket_ptr);
     int local_depth = bucket_ptr->GetDepth();
-    // 在 directory 的后半部分，安排相应的桶(注意：分裂的那个桶需要被忽略)
+    // 在 directory 里面，部分目录项是新开拓的，所以指向空，你需要安排相应的桶(注意：分裂的那个桶由于对应目录已经有指向了
+    // 自然这些项由于 this->dir_[j] != nullptr，故他们会被直接忽略)
     for (size_t j = 0; j < this->dir_.size(); ++j) {
       if (this->dir_[j] == nullptr && LowBitEquals(j, idx, local_depth)) {
         this->dir_[j] = bucket_ptr;  // 桶的重新映射
